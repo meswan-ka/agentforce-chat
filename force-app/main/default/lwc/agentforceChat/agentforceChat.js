@@ -751,9 +751,8 @@ export default class AgentforceChat extends LightningElement {
         // Inject CSS that positions the chat over the container
         this._injectProjectionStyles();
 
-        // NOTE: Minimize-to-FAB switching disabled - was causing false triggers
-        // Users can navigate to a different page to get FAB behavior
-        // this._watchForMinimize(embeddedMessaging);
+        // Watch for minimize action to end chat and reset to welcome screen
+        this._watchForMinimize(embeddedMessaging);
 
         // Update position immediately and on scroll/resize
         this._updateChatPosition();
@@ -813,8 +812,9 @@ export default class AgentforceChat extends LightningElement {
     }
 
     /**
-     * Watch for minimize action to switch from inline to FAB mode
+     * Watch for minimize action in inline mode to end chat and reset to welcome screen
      * Only triggers on actual minimize button click, not on other DOM changes
+     * Only applies when in inline mode - FAB mode uses default minimize behavior
      */
     _watchForMinimize(embeddedMessaging) {
         // Clean up existing observer
@@ -826,6 +826,11 @@ export default class AgentforceChat extends LightningElement {
         let wasMaximized = true;
 
         this._minimizeObserver = new MutationObserver((mutations) => {
+            // Only handle minimize in inline mode
+            if (!this.hasInlineContainer || this._inFabModeOverride) {
+                return;
+            }
+
             for (const mutation of mutations) {
                 // Only watch for class changes on the iframe
                 if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
@@ -836,15 +841,15 @@ export default class AgentforceChat extends LightningElement {
 
                         // Only trigger if transitioning FROM maximized TO not maximized
                         if (wasMaximized && !isMaximized) {
-                            console.log('[AgentforceChat] Chat minimize detected (isMaximized removed)');
+                            console.log('[AgentforceChat] Chat minimize detected in inline mode');
 
                             // Double-check with a short delay to avoid false positives
                             // eslint-disable-next-line @lwc/lwc/no-async-operation
                             setTimeout(() => {
                                 // Re-check - if still not maximized, it's a real minimize
                                 if (!target.classList.contains('isMaximized')) {
-                                    console.log('[AgentforceChat] Confirmed minimize - switching to FAB mode');
-                                    this._switchToFabMode();
+                                    console.log('[AgentforceChat] Confirmed minimize - ending chat and resetting');
+                                    this._endChatAndReset();
                                 } else {
                                     console.log('[AgentforceChat] False minimize detection, ignoring');
                                 }
@@ -863,7 +868,46 @@ export default class AgentforceChat extends LightningElement {
             subtree: true
         });
 
-        console.log('[AgentforceChat] Started watching for minimize action');
+        console.log('[AgentforceChat] Started watching for minimize action (inline mode only)');
+    }
+
+    /**
+     * End the current chat and reset to welcome screen (inline mode only)
+     */
+    _endChatAndReset() {
+        console.log('[AgentforceChat] Ending chat and resetting to welcome screen');
+
+        // Stop watching for minimize
+        if (this._minimizeObserver) {
+            this._minimizeObserver.disconnect();
+            this._minimizeObserver = null;
+        }
+
+        // Clean up projection styles (hides the chat UI)
+        this._cleanupInlineStyles();
+
+        // Reset the inline container to show welcome screen
+        const container = window.__agentforceChatInlineContainer;
+        if (container?.reset) {
+            container.reset();
+        }
+
+        // Reset projection state
+        this._projectionComplete = false;
+        this._pendingMessage = null;
+        this._messageSent = false;
+
+        // Publish session ended event
+        this._publishActivityEvent('SESSION_ENDED', {
+            source: 'user_minimize',
+            reason: 'inline_minimize'
+        });
+
+        // Reset session for next chat
+        this._sessionId = null;
+        this._messageCount = 0;
+
+        console.log('[AgentforceChat] Chat ended and reset complete');
     }
 
     /**
@@ -937,16 +981,6 @@ export default class AgentforceChat extends LightningElement {
 
             /* Hide FAB button in inline mode */
             #embedded-messaging.projected-inline > button {
-                display: none !important;
-            }
-
-            /* Hide minimize button in inline mode since it doesn't switch to FAB */
-            #embedded-messaging.projected-inline [class*="minimize"],
-            #embedded-messaging.projected-inline [class*="Minimize"],
-            #embedded-messaging.projected-inline [aria-label*="minimize"],
-            #embedded-messaging.projected-inline [aria-label*="Minimize"],
-            #embedded-messaging.projected-inline [title*="minimize"],
-            #embedded-messaging.projected-inline [title*="Minimize"] {
                 display: none !important;
             }
 

@@ -81,6 +81,8 @@ export default class AgentforceChatInlineContainer extends LightningElement {
             element: null, // Will be set in renderedCallback
             showChat: () => this._showChat(),
             hideWelcome: () => this._hideWelcome(),
+            showWelcome: () => this._showWelcome(),
+            reset: () => this._reset(),
             getInputMessage: () => this._inputMessage
         };
 
@@ -341,8 +343,23 @@ export default class AgentforceChatInlineContainer extends LightningElement {
         this._inputMessage = '';
     }
 
+    _showWelcome() {
+        this._isWelcomeVisible = true;
+        this._inputMessage = '';
+    }
+
     _showChat() {
         this._isWelcomeVisible = false;
+    }
+
+    /**
+     * Reset the container to initial state (show welcome screen)
+     * Called when chat is ended/minimized in inline mode
+     */
+    _reset() {
+        console.log('[AgentforceChatInlineContainer] Resetting to welcome screen');
+        this._isWelcomeVisible = true;
+        this._inputMessage = '';
     }
 
     _darkenColor(hex, percent) {
