@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>62.0</apiVersion>
+    <isExposed>true</isExposed>
+    <masterLabel>Agentforce Chat Inline Container</masterLabel>
+    <description>A target container for displaying Agentforce chat inline. Place this component where you want the chat to appear. The main Agentforce Chat component will project the chat UI into this container.</description>
+    <targets>
+        <target>lightning__AppPage</target>
+        <target>lightning__RecordPage</target>
+        <target>lightning__HomePage</target>
+        <target>lightningCommunity__Default</target>
+        <target>lightningCommunity__Page</target>
+    </targets>
+    <targetConfigs>
+        <targetConfig targets="lightning__AppPage,lightning__RecordPage,lightning__HomePage,lightningCommunity__Default">
+            <property name="height" type="Integer" default="600" label="Height (px)" description="Container height in pixels"/>
+            <property name="widthPercent" type="Integer" default="100" min="10" max="100" label="Width (%)" description="Container width as percentage"/>
+            <property name="showWelcomeScreen" type="Boolean" default="true" label="Show Welcome Screen" description="Show custom welcome screen before chat"/>
+            <property name="welcomeTitle" type="String" default="How can Agentforce help?" label="Welcome Title"/>
+            <property name="welcomeTitleColor" type="String" default="#032d60" label="Title Color"/>
+            <property name="calloutWord" type="String" default="Agentforce" label="Callout Word" description="Word to highlight in the title"/>
+            <property name="calloutColor" type="String" default="#0176d3" label="Callout Color"/>
+            <property name="welcomeMessage" type="String" default="Ask questions, get personalized answers, and take action with Agentforce." label="Welcome Message"/>
+            <property name="gradientStartColor" type="String" default="#e8f4fd" label="Gradient Start Color"/>
+            <property name="gradientMidColor" type="String" default="#f5f9fc" label="Gradient Mid Color"/>
+            <property name="gradientEndColor" type="String" default="#ffffff" label="Gradient End Color"/>
+            <property name="agentPrimaryColor" type="String" default="#0176d3" label="Agent Icon Color"/>
+            <property name="sendButtonColor" type="String" default="#0176d3" label="Send Button Color"/>
+        </targetConfig>
+    </targetConfigs>
+</LightningComponentBundle>

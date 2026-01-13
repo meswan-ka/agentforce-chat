@@ -1,0 +1,45 @@
+<template>
+    <div class="agentforce-inline-wrapper" style={wrapperStyle}>
+        <!-- Welcome Screen Overlay -->
+        <template lwc:if={isWelcomeVisible}>
+            <div class="welcome-overlay" style={containerStyle}>
+                <div class="welcome-screen">
+                    <div class="welcome-content">
+                        <div class="agent-avatar" style={agentIconStyle}>
+                            <lightning-icon icon-name="standard:bot" size="large"></lightning-icon>
+                        </div>
+                        <h1 class="welcome-title" style={welcomeTitleStyle}>
+                            <template for:each={titleParts} for:item="part">
+                                <template lwc:if={part.isCallout}>
+                                    <span key={part.text} class="callout" style={calloutStyle}>{part.text}</span>
+                                </template>
+                                <template lwc:else>
+                                    <span key={part.text}>{part.text}</span>
+                                </template>
+                            </template>
+                        </h1>
+                        <p class="welcome-subtitle">{welcomeMessage}</p>
+                    </div>
+                    <div class="input-container">
+                        <input
+                            type="text"
+                            class="message-input"
+                            placeholder="Type your message..."
+                            value={inputMessage}
+                            onkeyup={handleKeyUp}
+                            oninput={handleInputChange}
+                        />
+                        <button class="send-button" onclick={handleSendMessage} disabled={isSendDisabled} style={sendButtonStyle}>
+                            <svg class="send-icon" viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M2.1 47.4c-.6 2.1 1.4 3.9 3.4 3.1L49.7 28c1.7-.7 1.7-3.1 0-3.8L5.5 1.5C3.5.7 1.5 2.5 2.1 4.6l5.9 18.2c.2.7.8 1.2 1.5 1.3l21.3 2.1c.8.1.8 1.3 0 1.4L9.5 29.7c-.7.1-1.3.6-1.5 1.3L2.1 47.4z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <!-- Chat Container - chat UI will be projected here -->
+        <div id={containerId} class="chat-projection-target"></div>
+    </div>
+</template>
