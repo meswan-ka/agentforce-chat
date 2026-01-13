@@ -144,12 +144,17 @@ export default class AgentforceChat extends LightningElement {
         this._chatStartHandler = this._handleChatStart.bind(this);
         document.addEventListener('chatstart', this._chatStartHandler);
 
+        // Listen for projection request from inline container (when it detects active conversation)
+        this._projectChatHandler = this._handleProjectChatRequest.bind(this);
+        document.addEventListener('agentforceProjectChat', this._projectChatHandler);
+
         // Listen for SPA navigation to re-evaluate FAB visibility
         this._setupNavigationListener();
 
-        console.log('[AgentforceChat] Core component connected');
+        console.log('[AgentforceChat] Core component connected at URL:', window.location.href);
         console.log('[AgentforceChat] hasInlineContainer:', this.hasInlineContainer);
         console.log('[AgentforceChat] window.__agentforceChatInlineContainer:', window.__agentforceChatInlineContainer);
+        console.log('[AgentforceChat] Session state - sessionId:', this._sessionId, 'messageCount:', this._messageCount);
     }
 
     renderedCallback() {
@@ -173,6 +178,10 @@ export default class AgentforceChat extends LightningElement {
         if (this._chatStartHandler) {
             document.removeEventListener('chatstart', this._chatStartHandler);
             this._chatStartHandler = null;
+        }
+        if (this._projectChatHandler) {
+            document.removeEventListener('agentforceProjectChat', this._projectChatHandler);
+            this._projectChatHandler = null;
         }
         if (this._conversationStartHandler) {
             window.removeEventListener('onEmbeddedMessagingConversationStarted', this._conversationStartHandler);
@@ -206,6 +215,7 @@ export default class AgentforceChat extends LightningElement {
      */
     _setupNavigationListener() {
         this._lastUrl = window.location.href;
+        console.log('[AgentforceChat] Setting up navigation listener, initial URL:', this._lastUrl);
 
         // Listen for browser back/forward
         this._navigationHandler = () => {
@@ -216,19 +226,21 @@ export default class AgentforceChat extends LightningElement {
         // Also poll for URL changes (handles programmatic navigation)
         // eslint-disable-next-line @lwc/lwc/no-async-operation
         this._navigationInterval = setInterval(() => {
-            if (window.location.href !== this._lastUrl) {
-                this._lastUrl = window.location.href;
+            const currentUrl = window.location.href;
+            if (currentUrl !== this._lastUrl) {
+                console.log('[AgentforceChat] URL change detected:', this._lastUrl, '->', currentUrl);
+                this._lastUrl = currentUrl;
                 this._handleNavigation();
             }
         }, 500);
     }
 
     /**
-     * Handle navigation - re-evaluate FAB visibility
+     * Handle navigation - re-evaluate chat position (inline or FAB)
      * Uses multiple checks to handle Experience Cloud SPA timing
      */
     _handleNavigation() {
-        console.log('[AgentforceChat] Navigation detected, re-evaluating FAB visibility');
+        console.log('[AgentforceChat] Navigation detected, re-evaluating chat position');
 
         // Clear any pending navigation checks
         if (this._navigationCheckTimeout) {
@@ -237,6 +249,13 @@ export default class AgentforceChat extends LightningElement {
 
         // Reset FAB mode override on navigation - allows returning to inline mode
         this._inFabModeOverride = false;
+
+        // Always reset projection state on navigation
+        // The container element changes between pages (different LWC instances)
+        // This ensures we re-project with the correct container reference
+        this._containerElement = null;
+        this._projectionComplete = false;
+        this._projectionAttempts = 0;
 
         // Restore container visibility if it was hidden by FAB switch
         const container = window.__agentforceChatInlineContainer;
@@ -256,12 +275,36 @@ export default class AgentforceChat extends LightningElement {
     _performNavigationCheck() {
         this._navigationCheckCount++;
         const hasContainer = this.hasInlineContainer;
+        const hasActiveConvo = this._hasActiveConversation();
 
-        console.log(`[AgentforceChat] Navigation check #${this._navigationCheckCount} - hasInlineContainer:`, hasContainer);
+        console.log(`[AgentforceChat] Navigation check #${this._navigationCheckCount}:`, {
+            hasInlineContainer: hasContainer,
+            hasActiveConversation: hasActiveConvo,
+            projectionComplete: this._projectionComplete,
+            sessionId: this._sessionId,
+            messageCount: this._messageCount
+        });
 
-        // If container found, hide FAB immediately
+        // If container found, hide FAB and project chat if active
         if (hasContainer) {
             this._updateFabVisibility(true);
+
+            // If there's an active conversation, project it into the container
+            // Projection state was already reset in _handleNavigation()
+            if (hasActiveConvo && !this._projectionComplete) {
+                console.log('[AgentforceChat] Active conversation detected, projecting into inline container');
+
+                // Hide the inline container's welcome screen
+                const container = window.__agentforceChatInlineContainer;
+                console.log('[AgentforceChat] Container reference:', container?.id, 'hideWelcome:', !!container?.hideWelcome);
+                if (container?.hideWelcome) {
+                    container.hideWelcome();
+                    console.log('[AgentforceChat] Called hideWelcome()');
+                }
+
+                // Project the active chat into the container
+                this._projectChatToContainer();
+            }
         }
         // Only show FAB (cleanup inline styles) after final check confirms no container
         else if (this._navigationCheckCount >= 4) {
@@ -278,6 +321,38 @@ export default class AgentforceChat extends LightningElement {
                 this._performNavigationCheck();
             }, delay);
         }
+    }
+
+    /**
+     * Check if there's an active conversation that should be preserved
+     */
+    _hasActiveConversation() {
+        // Check 1: Session ID exists (conversation was started)
+        if (this._sessionId) {
+            console.log('[AgentforceChat] Active conversation: sessionId exists');
+            return true;
+        }
+
+        // Check 2: Messages have been exchanged
+        if (this._messageCount > 0) {
+            console.log('[AgentforceChat] Active conversation: messageCount > 0');
+            return true;
+        }
+
+        // Check 3: Chat iframe is maximized (visible)
+        const embeddedMessaging = document.getElementById('embedded-messaging');
+        if (embeddedMessaging) {
+            let iframe = embeddedMessaging.querySelector('iframe[name="embeddedMessagingFrame"]');
+            if (!iframe) {
+                iframe = embeddedMessaging.querySelector('iframe');
+            }
+            if (iframe?.classList.contains('isMaximized')) {
+                console.log('[AgentforceChat] Active conversation: iframe is maximized');
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -470,6 +545,71 @@ export default class AgentforceChat extends LightningElement {
             }
 
             const hasContainer = this.hasInlineContainer;
+
+            // Check if chat is already initialized (persists across SPA navigation)
+            // If so, don't call init() again - just set up listeners and project
+            const existingChat = document.getElementById('embedded-messaging');
+            // Try multiple selectors - iframe name may vary
+            let existingIframe = existingChat?.querySelector('iframe[name="embeddedMessagingFrame"]');
+            if (!existingIframe) {
+                existingIframe = existingChat?.querySelector('iframe');
+            }
+
+            console.log('[AgentforceChat] Checking for existing chat:', {
+                existingChatElement: !!existingChat,
+                existingIframe: !!existingIframe,
+                allIframes: existingChat ? existingChat.querySelectorAll('iframe').length : 0,
+                iframeNames: existingChat ? Array.from(existingChat.querySelectorAll('iframe')).map(f => f.name || f.id || 'unnamed') : []
+            });
+
+            if (existingChat && existingIframe) {
+                console.log('[AgentforceChat] Chat already initialized, skipping bootstrap.init()');
+
+                // Set up listeners without re-initializing
+                this._setupMessagingReadyListener();
+                this._bootstrapInitialized = true;
+
+                // If we have an inline container, project the existing chat
+                if (hasContainer) {
+                    this._hideFabButton();
+
+                    // Reset projection state to allow fresh projection to NEW container
+                    this._containerElement = null;
+                    this._projectionComplete = false;
+                    this._projectionAttempts = 0;
+
+                    // Remove old projection class so we can re-add with new position
+                    existingChat.classList.remove('projected-inline', 'show-chat');
+
+                    // ALWAYS hide welcome and project for inline→inline navigation
+                    // The chat exists and we're on an inline page, so hide welcome immediately
+                    const container = window.__agentforceChatInlineContainer;
+                    console.log('[AgentforceChat] Inline→Inline detected, hiding welcome and projecting');
+                    console.log('[AgentforceChat] isMaximized:', existingIframe.classList.contains('isMaximized'));
+
+                    if (container?.hideWelcome) {
+                        container.hideWelcome();
+                    }
+
+                    // Project immediately - don't wait for isMaximized
+                    // The chat UI will be positioned correctly when it becomes visible
+                    this._projectChatToContainer();
+                } else {
+                    // No inline container on this page - clean up inline styles for FAB mode
+                    this._cleanupInlineStyles();
+                }
+
+                // Trigger ready handler manually since onEmbeddedMessagingReady already fired
+                if (bootstrap.utilAPI) {
+                    console.log('[AgentforceChat] API already available, triggering ready handler');
+                    this._apiReady = true;
+                    this._setupConversationStartListener();
+                    this._setupActivityEventListeners();
+                }
+
+                return;
+            }
+
             console.log('[AgentforceChat] Initializing chat:', {
                 hasInlineContainer: hasContainer,
                 orgId: this.orgId,
@@ -561,6 +701,10 @@ export default class AgentforceChat extends LightningElement {
             // We'll position when the user starts chatting
             if (this.hasInlineContainer) {
                 this._hideFabButton();
+
+                // Check if there's already an active conversation (e.g., from previous page)
+                // This handles the case where component was recreated but chat persists
+                this._checkAndProjectExistingConversation();
             }
 
             // Set up conversation start listener to send pending message
@@ -579,6 +723,52 @@ export default class AgentforceChat extends LightningElement {
         };
 
         window.addEventListener('onEmbeddedMessagingReady', this._messagingReadyHandler);
+    }
+
+    /**
+     * Check if there's an existing active conversation and project it
+     * Called when component is created and API is ready
+     * Uses retries because iframe state is restored asynchronously
+     */
+    _checkAndProjectExistingConversation(attempt = 0) {
+        const maxAttempts = 5;
+        const embeddedMessaging = document.getElementById('embedded-messaging');
+
+        if (!embeddedMessaging) {
+            console.log('[AgentforceChat] No embedded-messaging element for existing conversation check');
+            return;
+        }
+
+        // Try multiple selectors - iframe name may vary
+        let iframe = embeddedMessaging.querySelector('iframe[name="embeddedMessagingFrame"]');
+        if (!iframe) {
+            iframe = embeddedMessaging.querySelector('iframe');
+        }
+        const isMaximized = iframe?.classList.contains('isMaximized');
+
+        console.log(`[AgentforceChat] Checking for existing conversation (attempt ${attempt + 1}):`, {
+            hasIframe: !!iframe,
+            isMaximized
+        });
+
+        if (iframe && isMaximized) {
+            console.log('[AgentforceChat] Found existing maximized conversation, projecting');
+
+            // Hide the inline container's welcome screen
+            const container = window.__agentforceChatInlineContainer;
+            if (container?.hideWelcome) {
+                container.hideWelcome();
+            }
+
+            // Project the chat
+            this._projectChatToContainer();
+        } else if (attempt < maxAttempts) {
+            // Retry - iframe state may be restored asynchronously
+            // eslint-disable-next-line @lwc/lwc/no-async-operation
+            setTimeout(() => {
+                this._checkAndProjectExistingConversation(attempt + 1);
+            }, 300);
+        }
     }
 
     /**
@@ -1071,6 +1261,25 @@ export default class AgentforceChat extends LightningElement {
                 this._watchForAgentGreeting();
             }, 500);
         }
+    }
+
+    /**
+     * Handle projection request from inline container
+     * Called when container detects an active conversation on page load
+     */
+    _handleProjectChatRequest(event) {
+        const { containerId } = event.detail || {};
+        console.log('[AgentforceChat] Projection request received from container:', containerId);
+
+        // Reset projection state to allow fresh projection
+        this._containerElement = null;
+        this._projectionComplete = false;
+        this._projectionAttempts = 0;
+        this._inFabModeOverride = false;
+
+        // Hide FAB and project the chat
+        this._updateFabVisibility(true);
+        this._projectChatToContainer();
     }
 
     // ==================== ACTIVITY TRACKING ====================
