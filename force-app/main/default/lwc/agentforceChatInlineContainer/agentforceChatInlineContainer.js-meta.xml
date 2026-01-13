@@ -11,22 +11,6 @@
     <targetConfigs>
         <targetConfig targets="lightningCommunity__Default">
             <property name="configJson" type="String" label="Configuration" description="Full component configuration" editor="c/agentforceChatInlineContainerCPE"/>
-            <property name="height" type="Integer" default="600" label="Height (px)" description="Container height in pixels"/>
-            <property name="widthPercent" type="Integer" default="100" min="10" max="100" label="Width (%)" description="Container width as percentage"/>
-            <property name="showWelcomeScreen" type="Boolean" default="true" label="Show Welcome Screen" description="Show custom welcome screen before chat"/>
-            <property name="welcomeTitle" type="String" default="How can Agentforce help?" label="Welcome Title"/>
-            <property name="welcomeTitleColor" type="String" default="#032d60" label="Title Color"/>
-            <property name="calloutWord" type="String" default="Agentforce" label="Callout Word" description="Word to highlight in the title"/>
-            <property name="calloutColor" type="String" default="#0176d3" label="Callout Color"/>
-            <property name="welcomeMessage" type="String" default="Ask questions, get personalized answers, and take action with Agentforce." label="Welcome Message"/>
-            <property name="gradientStartColor" type="String" default="#e8f4fd" label="Gradient Start Color"/>
-            <property name="gradientMidColor" type="String" default="#f5f9fc" label="Gradient Mid Color"/>
-            <property name="gradientEndColor" type="String" default="#ffffff" label="Gradient End Color"/>
-            <property name="agentPrimaryColor" type="String" default="#0176d3" label="Agent Icon Color"/>
-            <property name="sendButtonColor" type="String" default="#0176d3" label="Send Button Color"/>
-            <property name="autoDetectSearchQuery" type="Boolean" default="false" label="Auto-Detect Search Query" description="Automatically detect and send search query from URL on search pages"/>
-            <property name="searchPagePath" type="String" default="/global-search" label="Search Page Path" description="URL path pattern to identify search pages"/>
-            <property name="searchQueryParam" type="String" default="term" label="Search Query Parameter" description="URL parameter name containing the search query"/>
         </targetConfig>
     </targetConfigs>
 </LightningComponentBundle>

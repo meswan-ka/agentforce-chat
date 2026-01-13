@@ -11,10 +11,8 @@ import { LightningElement, api, track } from 'lwc';
  * If no container exists on the page, the chat will appear in floating (FAB) mode.
  *
  * CONFIGURATION:
- * This component supports two configuration methods:
- * 1. configJson from CPE (preferred) - provides full configuration via custom property editor
- * 2. Individual @api properties (backwards compatibility) - standard LWC properties
- * When configJson is provided, it takes precedence over individual properties.
+ * Configure via the Custom Property Editor (CPE) in Experience Builder.
+ * The CPE provides full configuration for display, appearance, branding, and search settings.
  */
 export default class AgentforceChatInlineContainer extends LightningElement {
     // Use Light DOM so the projected chat content can be styled
@@ -35,26 +33,7 @@ export default class AgentforceChatInlineContainer extends LightningElement {
         this._applyConfig();
     }
 
-    // ==================== LEGACY @API PROPERTIES (backwards compatibility) ====================
-
-    @api height = 600;
-    @api widthPercent = 100;
-    @api showWelcomeScreen;
-    @api gradientStartColor = '#e8f4fd';
-    @api gradientMidColor = '#f5f9fc';
-    @api gradientEndColor = '#ffffff';
-    @api welcomeTitle = 'How can Agentforce help?';
-    @api welcomeTitleColor = '#032d60';
-    @api calloutWord = 'Agentforce';
-    @api calloutColor = '#0176d3';
-    @api welcomeMessage = 'Ask questions, get personalized answers, and take action with Agentforce.';
-    @api agentPrimaryColor = '#0176d3';
-    @api sendButtonColor = '#0176d3';
-    @api autoDetectSearchQuery = false;
-    @api searchPagePath = '/global-search';
-    @api searchQueryParam = 'term';
-
-    // Default configuration values (used when no config provided)
+    // Default configuration values
     static DEFAULTS = {
         height: 600,
         widthPercent: 100,
@@ -130,8 +109,7 @@ export default class AgentforceChatInlineContainer extends LightningElement {
     // ==================== CONFIGURATION ====================
 
     /**
-     * Apply configuration from either CPE (configJson) or individual @api properties
-     * configJson takes precedence when provided
+     * Apply configuration from CPE (configJson)
      */
     _applyConfig() {
         if (this._configApplied) {
@@ -141,7 +119,7 @@ export default class AgentforceChatInlineContainer extends LightningElement {
         // Start with defaults
         let config = { ...AgentforceChatInlineContainer.DEFAULTS };
 
-        // If configJson is provided (from CPE), use it
+        // Apply configJson from CPE if provided
         if (this.configJson) {
             try {
                 const parsed = typeof this.configJson === 'string'
@@ -152,28 +130,6 @@ export default class AgentforceChatInlineContainer extends LightningElement {
             } catch (e) {
                 console.error('[AgentforceChatInlineContainer] Failed to parse configJson:', e);
             }
-        } else {
-            // Use individual @api properties (backwards compatibility)
-            config = {
-                ...config,
-                height: this.height,
-                widthPercent: this.widthPercent,
-                showWelcomeScreen: this.showWelcomeScreen !== false,
-                gradientStartColor: this.gradientStartColor,
-                gradientMidColor: this.gradientMidColor,
-                gradientEndColor: this.gradientEndColor,
-                welcomeTitle: this.welcomeTitle,
-                welcomeTitleColor: this.welcomeTitleColor,
-                calloutWord: this.calloutWord,
-                calloutColor: this.calloutColor,
-                welcomeMessage: this.welcomeMessage,
-                agentPrimaryColor: this.agentPrimaryColor,
-                sendButtonColor: this.sendButtonColor,
-                autoDetectSearchQuery: this.autoDetectSearchQuery,
-                searchPagePath: this.searchPagePath,
-                searchQueryParam: this.searchQueryParam
-            };
-            console.log('[AgentforceChatInlineContainer] Applied config from @api properties:', config);
         }
 
         this._config = config;
