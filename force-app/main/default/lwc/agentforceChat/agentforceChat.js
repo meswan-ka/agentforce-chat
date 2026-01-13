@@ -1,4 +1,7 @@
-import { LightningElement, api } from 'lwc';
+import { LightningElement, api, wire } from 'lwc';
+import { publish, MessageContext } from 'lightning/messageService';
+import AGENTFORCE_SESSION_CHANNEL from '@salesforce/messageChannel/AgentforceSessionChannel__c';
+// Note: The __c suffix is required in the import path even though the file is named without it
 
 /**
  * @description Agentforce Chat - Core Component
@@ -41,6 +44,11 @@ export default class AgentforceChat extends LightningElement {
     @api siteUrl = '';
     @api scrtUrl = '';
 
+    // ==================== LMS MESSAGE CONTEXT ====================
+
+    @wire(MessageContext)
+    messageContext;
+
     // ==================== INTERNAL STATE ====================
 
     _configApplied = false;
@@ -56,6 +64,18 @@ export default class AgentforceChat extends LightningElement {
     _projectionComplete = false;
     _messageSent = false;
     _lastUrl = null;
+    _containerElement = null;
+    _navigationCheckTimeout = null;
+    _navigationCheckCount = 0;
+    _apiReady = false;
+    _queuedChatStart = null;
+    _minimizeObserver = null;
+    _inFabModeOverride = false;
+
+    // Activity tracking state
+    _sessionId = null;
+    _messageCount = 0;
+    _embeddedEventHandlers = {};
 
     // ==================== COMPUTED PROPERTIES ====================
 
@@ -64,10 +84,55 @@ export default class AgentforceChat extends LightningElement {
     }
 
     /**
-     * Check if an inline container component exists on the page
+     * Check if an inline container component exists AND is visible on the page
+     * In Experience Cloud SPA, components may stay registered even when not visible
      */
     get hasInlineContainer() {
-        return !!window.__agentforceChatInlineContainer;
+        const container = window.__agentforceChatInlineContainer;
+        if (!container) {
+            return false;
+        }
+
+        // Check if the container element is actually in the DOM and visible
+        const element = container.element || document.getElementById(container.id);
+        if (!element) {
+            return false;
+        }
+
+        // Check if element is connected to DOM
+        if (!element.isConnected) {
+            return false;
+        }
+
+        // Check if element has dimensions (not collapsed)
+        const rect = element.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) {
+            return false;
+        }
+
+        // Walk up the DOM tree to check if ANY parent is hidden
+        // Experience Cloud SPA hides pages by hiding parent containers
+        let current = element;
+        while (current && current !== document.body) {
+            const style = window.getComputedStyle(current);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                return false;
+            }
+            // Also check for common SPA hiding patterns
+            if (current.hasAttribute('hidden') || current.classList.contains('slds-hide')) {
+                return false;
+            }
+            current = current.parentElement;
+        }
+
+        // Final check: is the element actually visible in viewport or at least rendered?
+        // An element with rect but off-screen is still "on this page"
+        // But if rect.top is extremely large negative, page might have scrolled away
+        if (rect.bottom < -5000 || rect.top > 10000) {
+            return false;
+        }
+
+        return true;
     }
 
     // ==================== LIFECYCLE ====================
@@ -121,6 +186,16 @@ export default class AgentforceChat extends LightningElement {
             clearInterval(this._navigationInterval);
             this._navigationInterval = null;
         }
+        if (this._navigationCheckTimeout) {
+            clearTimeout(this._navigationCheckTimeout);
+            this._navigationCheckTimeout = null;
+        }
+        if (this._minimizeObserver) {
+            this._minimizeObserver.disconnect();
+            this._minimizeObserver = null;
+        }
+        // Clean up activity event listeners
+        this._cleanupActivityEventListeners();
         this._bootstrapInitialized = false;
     }
 
@@ -150,60 +225,111 @@ export default class AgentforceChat extends LightningElement {
 
     /**
      * Handle navigation - re-evaluate FAB visibility
+     * Uses multiple checks to handle Experience Cloud SPA timing
      */
     _handleNavigation() {
         console.log('[AgentforceChat] Navigation detected, re-evaluating FAB visibility');
 
-        // Wait a tick for the new page's inline container to register (or unregister)
-        // eslint-disable-next-line @lwc/lwc/no-async-operation
-        setTimeout(() => {
-            const hasContainer = this.hasInlineContainer;
-            console.log('[AgentforceChat] After navigation - hasInlineContainer:', hasContainer);
+        // Clear any pending navigation checks
+        if (this._navigationCheckTimeout) {
+            clearTimeout(this._navigationCheckTimeout);
+        }
 
-            this._updateFabVisibility(hasContainer);
+        // Reset FAB mode override on navigation - allows returning to inline mode
+        this._inFabModeOverride = false;
 
-            // Reset projection state for new page
-            if (hasContainer) {
-                this._projectionComplete = false;
-                this._projectionAttempts = 0;
-            }
-        }, 300);
+        // Restore container visibility if it was hidden by FAB switch
+        const container = window.__agentforceChatInlineContainer;
+        if (container?.element && container.element.style.display === 'none') {
+            container.element.style.display = '';
+            console.log('[AgentforceChat] Restored inline container visibility');
+        }
+
+        // Check multiple times to handle LWC lifecycle timing
+        this._navigationCheckCount = 0;
+        this._performNavigationCheck();
+    }
+
+    /**
+     * Perform a navigation check with retry logic
+     */
+    _performNavigationCheck() {
+        this._navigationCheckCount++;
+        const hasContainer = this.hasInlineContainer;
+
+        console.log(`[AgentforceChat] Navigation check #${this._navigationCheckCount} - hasInlineContainer:`, hasContainer);
+
+        // If container found, hide FAB immediately
+        if (hasContainer) {
+            this._updateFabVisibility(true);
+        }
+        // Only show FAB (cleanup inline styles) after final check confirms no container
+        else if (this._navigationCheckCount >= 4) {
+            console.log('[AgentforceChat] Final check - no container found, showing FAB');
+            this._updateFabVisibility(false);
+        }
+
+        // Retry a few times to catch late-registering containers
+        // Experience Cloud SPA can have variable timing
+        if (this._navigationCheckCount < 4) {
+            const delay = this._navigationCheckCount === 1 ? 300 : 600;
+            // eslint-disable-next-line @lwc/lwc/no-async-operation
+            this._navigationCheckTimeout = setTimeout(() => {
+                this._performNavigationCheck();
+            }, delay);
+        }
     }
 
     /**
      * Update FAB visibility based on whether inline container exists
      */
     _updateFabVisibility(hasContainer) {
-        const hidingStyleId = 'agentforce-hide-fab-styles';
-        const initialHidingStyleId = 'agentforce-initial-hiding-styles';
-
         if (hasContainer) {
             // Hide the FAB
             console.log('[AgentforceChat] Hiding FAB (inline container present)');
             this._hideFabButton();
             this._injectInitialHidingStyles();
         } else {
-            // Show the FAB - remove hiding styles
+            // Show the FAB - remove ALL injected styles
             console.log('[AgentforceChat] Showing FAB (no inline container)');
-
-            const hidingStyle = document.getElementById(hidingStyleId);
-            if (hidingStyle) {
-                hidingStyle.remove();
-                console.log('[AgentforceChat] Removed FAB hiding styles');
-            }
-
-            const initialStyle = document.getElementById(initialHidingStyleId);
-            if (initialStyle) {
-                initialStyle.remove();
-                console.log('[AgentforceChat] Removed initial hiding styles');
-            }
-
-            // Also remove classes from embedded-messaging
-            const embeddedMessaging = document.getElementById('embedded-messaging');
-            if (embeddedMessaging) {
-                embeddedMessaging.classList.remove('projected-inline', 'show-chat');
-            }
+            this._cleanupInlineStyles();
         }
+    }
+
+    /**
+     * Remove all inline-mode styles and reset to FAB mode
+     */
+    _cleanupInlineStyles() {
+        const styleIds = [
+            'agentforce-hide-fab-styles',
+            'agentforce-initial-hiding-styles',
+            'agentforce-projection-styles'
+        ];
+
+        styleIds.forEach(id => {
+            const style = document.getElementById(id);
+            if (style) {
+                style.remove();
+                console.log(`[AgentforceChat] Removed ${id}`);
+            }
+        });
+
+        // Reset embedded-messaging element to FAB defaults
+        const embeddedMessaging = document.getElementById('embedded-messaging');
+        if (embeddedMessaging) {
+            embeddedMessaging.classList.remove('projected-inline', 'show-chat');
+
+            // Clear ALL inline styles to reset to default FAB positioning
+            // Don't set visibility - let CSS rules control that
+            embeddedMessaging.style.cssText = '';
+
+            console.log('[AgentforceChat] Reset embedded-messaging element to FAB mode');
+        }
+
+        // Clear container reference
+        this._containerElement = null;
+        this._projectionComplete = false;
+        this._projectionAttempts = 0;
     }
 
     // ==================== CONFIGURATION ====================
@@ -428,6 +554,9 @@ export default class AgentforceChat extends LightningElement {
             console.log('[AgentforceChat] onEmbeddedMessagingReady fired');
             console.log('[AgentforceChat] hasInlineContainer at ready:', this.hasInlineContainer);
 
+            // Mark API as ready
+            this._apiReady = true;
+
             // If we have an inline container, hide the FAB but DON'T position yet
             // We'll position when the user starts chatting
             if (this.hasInlineContainer) {
@@ -436,6 +565,17 @@ export default class AgentforceChat extends LightningElement {
 
             // Set up conversation start listener to send pending message
             this._setupConversationStartListener();
+
+            // Set up activity event listeners for tracking
+            this._setupActivityEventListeners();
+
+            // Process any queued chat start
+            if (this._queuedChatStart) {
+                console.log('[AgentforceChat] Processing queued chat start');
+                const event = this._queuedChatStart;
+                this._queuedChatStart = null;
+                this._handleChatStart(event);
+            }
         };
 
         window.addEventListener('onEmbeddedMessagingReady', this._messagingReadyHandler);
@@ -450,8 +590,9 @@ export default class AgentforceChat extends LightningElement {
         }
 
         this._conversationStartHandler = () => {
-            console.log('[AgentforceChat] Conversation started');
-            this._sendPendingMessage();
+            console.log('[AgentforceChat] Conversation started, watching for agent greeting...');
+            // Watch for agent's greeting message to appear before sending user's message
+            this._watchForAgentGreeting();
         };
 
         // Listen for various conversation start events
@@ -459,6 +600,71 @@ export default class AgentforceChat extends LightningElement {
 
         // Also try after a delay when chat is launched (fallback)
         console.log('[AgentforceChat] Conversation start listener set up');
+    }
+
+    /**
+     * Watch for agent's greeting message to appear before sending user's message
+     */
+    _watchForAgentGreeting() {
+        if (!this._pendingMessage || this._messageSent) {
+            return;
+        }
+
+        const embeddedMessaging = document.getElementById('embedded-messaging');
+        if (!embeddedMessaging) {
+            console.log('[AgentforceChat] embedded-messaging not found, retrying...');
+            // eslint-disable-next-line @lwc/lwc/no-async-operation
+            setTimeout(() => this._watchForAgentGreeting(), 500);
+            return;
+        }
+
+        let messageCount = 0;
+
+        // Create observer to watch for any new content in the chat
+        const observer = new MutationObserver((mutations, obs) => {
+            for (const mutation of mutations) {
+                // Look for added nodes that might be messages
+                if (mutation.addedNodes.length > 0) {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            // Check if this looks like a message (has text content, is visible)
+                            const text = node.textContent?.trim();
+                            if (text && text.length > 5) {
+                                messageCount++;
+                                console.log('[AgentforceChat] Detected content:', text.substring(0, 50));
+
+                                // Wait for at least one message-like element
+                                if (messageCount >= 1) {
+                                    console.log('[AgentforceChat] Agent greeting likely detected, sending user message');
+                                    obs.disconnect();
+                                    // Delay to ensure greeting is fully rendered
+                                    // eslint-disable-next-line @lwc/lwc/no-async-operation
+                                    setTimeout(() => this._sendPendingMessage(), 500);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Start observing
+        observer.observe(embeddedMessaging, {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
+
+        // Fallback: disconnect after 8 seconds and send anyway
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        setTimeout(() => {
+            observer.disconnect();
+            console.log('[AgentforceChat] Greeting watch timeout, sending message anyway');
+            this._sendPendingMessage();
+        }, 8000);
+
+        console.log('[AgentforceChat] Started watching for agent greeting');
     }
 
     /**
@@ -503,6 +709,12 @@ export default class AgentforceChat extends LightningElement {
             return;
         }
 
+        // Don't project if user has switched to FAB mode via minimize
+        if (this._inFabModeOverride) {
+            console.log('[AgentforceChat] In FAB mode override, skipping projection');
+            return;
+        }
+
         console.log('[AgentforceChat] _projectChatToContainer called, attempt:', this._projectionAttempts);
 
         const container = window.__agentforceChatInlineContainer;
@@ -538,6 +750,9 @@ export default class AgentforceChat extends LightningElement {
 
         // Inject CSS that positions the chat over the container
         this._injectProjectionStyles();
+
+        // Watch for minimize action to switch to FAB mode
+        this._watchForMinimize(embeddedMessaging);
 
         // Update position immediately and on scroll/resize
         this._updateChatPosition();
@@ -597,6 +812,90 @@ export default class AgentforceChat extends LightningElement {
     }
 
     /**
+     * Watch for minimize action to switch from inline to FAB mode
+     * Only triggers on actual minimize button click, not on other DOM changes
+     */
+    _watchForMinimize(embeddedMessaging) {
+        // Clean up existing observer
+        if (this._minimizeObserver) {
+            this._minimizeObserver.disconnect();
+        }
+
+        // Track the last known state of the iframe
+        let wasMaximized = true;
+
+        this._minimizeObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                // Only watch for class changes on the iframe
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    const target = mutation.target;
+                    // Check if this is the chat iframe
+                    if (target.tagName === 'IFRAME' && target.name === 'embeddedMessagingFrame') {
+                        const isMaximized = target.classList.contains('isMaximized');
+
+                        // Only trigger if transitioning FROM maximized TO not maximized
+                        if (wasMaximized && !isMaximized) {
+                            console.log('[AgentforceChat] Chat minimize detected (isMaximized removed)');
+
+                            // Double-check with a short delay to avoid false positives
+                            // eslint-disable-next-line @lwc/lwc/no-async-operation
+                            setTimeout(() => {
+                                // Re-check - if still not maximized, it's a real minimize
+                                if (!target.classList.contains('isMaximized')) {
+                                    console.log('[AgentforceChat] Confirmed minimize - switching to FAB mode');
+                                    this._switchToFabMode();
+                                } else {
+                                    console.log('[AgentforceChat] False minimize detection, ignoring');
+                                }
+                            }, 100);
+                        }
+
+                        wasMaximized = isMaximized;
+                    }
+                }
+            }
+        });
+
+        this._minimizeObserver.observe(embeddedMessaging, {
+            attributes: true,
+            attributeFilter: ['class'],
+            subtree: true
+        });
+
+        console.log('[AgentforceChat] Started watching for minimize action');
+    }
+
+    /**
+     * Switch from inline mode to FAB mode
+     */
+    _switchToFabMode() {
+        console.log('[AgentforceChat] Switching to FAB mode');
+
+        // Stop watching for minimize
+        if (this._minimizeObserver) {
+            this._minimizeObserver.disconnect();
+            this._minimizeObserver = null;
+        }
+
+        // Hide the inline container
+        const container = window.__agentforceChatInlineContainer;
+        if (container?.element) {
+            container.element.style.display = 'none';
+            console.log('[AgentforceChat] Hid inline container');
+        }
+
+        // Clean up inline styles and show FAB
+        this._cleanupInlineStyles();
+
+        // Clear the inline container reference so hasInlineContainer returns false
+        // This prevents re-projection until user navigates back
+        this._projectionComplete = false;
+        this._inFabModeOverride = true;
+
+        console.log('[AgentforceChat] Now in FAB mode');
+    }
+
+    /**
      * Inject CSS to style the projected chat
      */
     _injectProjectionStyles() {
@@ -635,8 +934,8 @@ export default class AgentforceChat extends LightningElement {
                 border: none !important;
             }
 
-            /* Hide any FAB buttons when in projected mode */
-            #embedded-messaging.projected-inline button {
+            /* Hide FAB button but keep minimize visible in inline mode */
+            #embedded-messaging.projected-inline > button {
                 display: none !important;
             }
 
@@ -660,6 +959,13 @@ export default class AgentforceChat extends LightningElement {
     _handleChatStart(event) {
         const { message, isSearchQuery } = event.detail || {};
         console.log('[AgentforceChat] Chat start requested:', message, 'isSearchQuery:', isSearchQuery);
+
+        // If API not ready yet, queue this request
+        if (!this._apiReady) {
+            console.log('[AgentforceChat] API not ready, queuing chat start');
+            this._queuedChatStart = event;
+            return;
+        }
 
         // Check if we should start a new chat or resume existing
         const searchStartsNewChat = window.__agentforceChatDesignTokens?.searchStartsNewChat !== false;
@@ -712,13 +1018,157 @@ export default class AgentforceChat extends LightningElement {
             console.log('[AgentforceChat] Launching chat');
             utilAPI.launchChat();
 
-            // Try to send the pending message after a delay (fallback if event doesn't fire)
+            // Start watching for agent greeting immediately
+            // Don't wait for onEmbeddedMessagingConversationStarted as it may not fire
             // eslint-disable-next-line @lwc/lwc/no-async-operation
             setTimeout(() => {
-                console.log('[AgentforceChat] Fallback: attempting to send pending message');
-                this._sendPendingMessage();
-            }, 2000);
+                console.log('[AgentforceChat] Starting greeting watcher after launch');
+                this._watchForAgentGreeting();
+            }, 500);
         }
+    }
+
+    // ==================== ACTIVITY TRACKING ====================
+
+    /**
+     * Generate a unique session ID for activity tracking
+     */
+    _generateSessionId() {
+        const timestamp = Date.now().toString(36);
+        const randomPart = Math.random().toString(36).substring(2, 9);
+        return `af-${timestamp}-${randomPart}`;
+    }
+
+    /**
+     * Register Embedded Service event listeners for activity tracking
+     * Called when onEmbeddedMessagingReady fires
+     */
+    _setupActivityEventListeners() {
+        console.log('[AgentforceChat] Setting up activity event listeners');
+
+        // Generate session ID when setting up listeners
+        if (!this._sessionId) {
+            this._sessionId = this._generateSessionId();
+            console.log('[AgentforceChat] Generated session ID:', this._sessionId);
+        }
+
+        // Conversation events
+        this._registerEmbeddedEvent('onEmbeddedMessagingConversationStarted', () => {
+            this._publishActivityEvent('SESSION_STARTED', {
+                source: 'embedded_service'
+            });
+        });
+
+        this._registerEmbeddedEvent('onEmbeddedMessagingConversationClosed', () => {
+            this._publishActivityEvent('SESSION_ENDED', {
+                source: 'embedded_service',
+                messageCount: this._messageCount
+            });
+            // Reset for next session
+            this._sessionId = null;
+            this._messageCount = 0;
+        });
+
+        // Message events - onEmbeddedMessageSent fires for all messages (user, bot, rep)
+        this._registerEmbeddedEvent('onEmbeddedMessageSent', (event) => {
+            this._messageCount++;
+            const detail = event?.detail || {};
+            const sender = detail.sender || 'unknown';
+
+            // Determine event type based on sender
+            const eventType = sender === 'EndUser' ? 'MESSAGE_SENT' : 'MESSAGE_RECEIVED';
+
+            this._publishActivityEvent(eventType, {
+                sender: sender,
+                messageCount: this._messageCount
+            });
+        });
+
+        // Link click events
+        this._registerEmbeddedEvent('onEmbeddedMessageLinkClicked', (event) => {
+            const detail = event?.detail || {};
+            this._publishActivityEvent('LINK_CLICK', {
+                url: detail.url,
+                linkText: detail.linkText
+            });
+        });
+
+        // UI events - window state changes
+        this._registerEmbeddedEvent('onEmbeddedMessagingWindowMinimized', () => {
+            this._publishActivityEvent('WINDOW_MINIMIZED', {});
+        });
+
+        this._registerEmbeddedEvent('onEmbeddedMessagingWindowMaximized', () => {
+            this._publishActivityEvent('WINDOW_MAXIMIZED', {});
+        });
+
+        this._registerEmbeddedEvent('onEmbeddedMessagingWindowClosed', () => {
+            this._publishActivityEvent('WINDOW_CLOSED', {});
+        });
+
+        // FAB button click
+        this._registerEmbeddedEvent('onEmbeddedMessagingButtonClicked', () => {
+            this._publishActivityEvent('FAB_CLICKED', {});
+        });
+
+        console.log('[AgentforceChat] Activity event listeners registered');
+    }
+
+    /**
+     * Register an Embedded Service event handler (with cleanup tracking)
+     */
+    _registerEmbeddedEvent(eventName, handler) {
+        // Wrap handler to catch errors
+        const wrappedHandler = (event) => {
+            try {
+                handler(event);
+            } catch (error) {
+                console.error(`[AgentforceChat] Error in ${eventName} handler:`, error);
+            }
+        };
+
+        // Store for cleanup
+        this._embeddedEventHandlers[eventName] = wrappedHandler;
+
+        // Register with window
+        window.addEventListener(eventName, wrappedHandler);
+        console.log(`[AgentforceChat] Registered ${eventName} listener`);
+    }
+
+    /**
+     * Publish an activity event via LMS
+     */
+    _publishActivityEvent(eventType, data = {}) {
+        // Generate session ID if not present
+        if (!this._sessionId) {
+            this._sessionId = this._generateSessionId();
+        }
+
+        const message = {
+            sessionId: this._sessionId,
+            eventType: eventType,
+            timestamp: Date.now(),
+            data: JSON.stringify(data)
+        };
+
+        console.log('[AgentforceChat] Publishing activity event:', eventType, message);
+
+        try {
+            publish(this.messageContext, AGENTFORCE_SESSION_CHANNEL, message);
+        } catch (error) {
+            console.error('[AgentforceChat] Error publishing activity event:', error);
+        }
+    }
+
+    /**
+     * Clean up activity event listeners
+     */
+    _cleanupActivityEventListeners() {
+        Object.entries(this._embeddedEventHandlers).forEach(([eventName, handler]) => {
+            window.removeEventListener(eventName, handler);
+            console.log(`[AgentforceChat] Removed ${eventName} listener`);
+        });
+        this._embeddedEventHandlers = {};
     }
 
     // ==================== PUBLIC API ====================

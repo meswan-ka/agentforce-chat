@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningMessageChannel xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Channel for Agentforce chat session events (starts, messages, clicks, etc.)</description>
+    <isExposed>true</isExposed>
+    <masterLabel>Agentforce Session Channel</masterLabel>
+    <lightningMessageFields>
+        <description>Unique identifier for the chat session</description>
+        <fieldName>sessionId</fieldName>
+    </lightningMessageFields>
+    <lightningMessageFields>
+        <description>Type of event (SESSION_STARTED, SESSION_ENDED, MESSAGE_SENT, MESSAGE_RECEIVED, LINK_CLICK, etc.)</description>
+        <fieldName>eventType</fieldName>
+    </lightningMessageFields>
+    <lightningMessageFields>
+        <description>Unix timestamp when the event occurred</description>
+        <fieldName>timestamp</fieldName>
+    </lightningMessageFields>
+    <lightningMessageFields>
+        <description>JSON string containing event-specific data</description>
+        <fieldName>data</fieldName>
+    </lightningMessageFields>
+</LightningMessageChannel>
