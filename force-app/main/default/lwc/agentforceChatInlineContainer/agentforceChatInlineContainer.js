@@ -1,4 +1,4 @@
-import { LightningElement, api } from 'lwc';
+import { LightningElement, api, track } from 'lwc';
 
 /**
  * @description Agentforce Chat Inline Container
@@ -9,17 +9,22 @@ import { LightningElement, api } from 'lwc';
  * the chat UI into it.
  *
  * If no container exists on the page, the chat will appear in floating (FAB) mode.
+ *
+ * DESIGN TOKENS:
+ * This component can receive design tokens from the core agentforceChat component's CPE.
+ * Tokens are shared via window.__agentforceChatDesignTokens and the 'agentforceDesignTokensReady' event.
+ * If tokens are available, they override the @api property defaults.
  */
 export default class AgentforceChatInlineContainer extends LightningElement {
     // Use Light DOM so the projected chat content can be styled
     static renderMode = 'light';
 
-    // Configuration
+    // Configuration - these are defaults, can be overridden by design tokens from CPE
     @api height = 600;
     @api widthPercent = 100;
     @api showWelcomeScreen;
 
-    // Welcome Screen Configuration
+    // Welcome Screen Configuration - defaults, overridden by design tokens
     @api gradientStartColor = '#e8f4fd';
     @api gradientMidColor = '#f5f9fc';
     @api gradientEndColor = '#ffffff';
@@ -31,10 +36,19 @@ export default class AgentforceChatInlineContainer extends LightningElement {
     @api agentPrimaryColor = '#0176d3';
     @api sendButtonColor = '#0176d3';
 
+    // Search page configuration - can be set via CPE design tokens
+    @api autoDetectSearchQuery = false;
+    @api searchPagePath = '/global-search';
+    @api searchQueryParam = 'term';
+
     // Internal state
     _containerId = null;
     _isWelcomeVisible = true;
     _inputMessage = '';
+
+    // Design tokens from CPE (tracked for reactivity)
+    @track _designTokens = null;
+    _designTokensHandler = null;
 
     // ==================== LIFECYCLE ====================
 
@@ -52,6 +66,81 @@ export default class AgentforceChatInlineContainer extends LightningElement {
         };
 
         console.log('[AgentforceChatInlineContainer] Registered container:', this._containerId);
+
+        // Check for design tokens from core component's CPE
+        this._loadDesignTokens();
+
+        // Listen for design tokens event (in case tokens arrive after we initialize)
+        this._designTokensHandler = (event) => this._handleDesignTokensReady(event);
+        window.addEventListener('agentforceDesignTokensReady', this._designTokensHandler);
+
+        // Check for search query if on search page (after tokens are loaded)
+        this._detectSearchQuery();
+    }
+
+    /**
+     * Detect if on a search page and extract the search query
+     */
+    _detectSearchQuery() {
+        // Use effective values from design tokens if available
+        const autoDetect = this.effectiveAutoDetectSearchQuery;
+        const searchPath = this.effectiveSearchPagePath;
+        const queryParam = this.effectiveSearchQueryParam;
+
+        if (autoDetect === false || !autoDetect) {
+            return;
+        }
+
+        const currentPath = window.location.pathname;
+        const isSearchPage = currentPath.includes(searchPath);
+
+        console.log('[AgentforceChatInlineContainer] Checking for search query:', {
+            currentPath,
+            searchPagePath: searchPath,
+            isSearchPage
+        });
+
+        if (isSearchPage) {
+            // Try to get query from URL parameter
+            const urlParams = new URLSearchParams(window.location.search);
+            let searchQuery = urlParams.get(queryParam);
+
+            // Also check for path-based search (e.g., /global-search/my%20query)
+            if (!searchQuery && currentPath.includes(searchPath + '/')) {
+                const pathParts = currentPath.split(searchPath + '/');
+                if (pathParts.length > 1) {
+                    searchQuery = decodeURIComponent(pathParts[1].split('/')[0]);
+                }
+            }
+
+            if (searchQuery) {
+                console.log('[AgentforceChatInlineContainer] Found search query:', searchQuery);
+                this._inputMessage = searchQuery;
+
+                // Auto-send after a short delay to let chat initialize
+                // eslint-disable-next-line @lwc/lwc/no-async-operation
+                setTimeout(() => {
+                    this._autoSendSearchQuery(searchQuery);
+                }, 1500);
+            }
+        }
+    }
+
+    /**
+     * Auto-send the search query to the chat
+     */
+    _autoSendSearchQuery(query) {
+        console.log('[AgentforceChatInlineContainer] Auto-sending search query:', query);
+
+        // Dispatch chatstart event with the search query
+        this.dispatchEvent(new CustomEvent('chatstart', {
+            detail: { message: query, isSearchQuery: true },
+            bubbles: true,
+            composed: true
+        }));
+
+        // Hide welcome screen
+        this._hideWelcome();
     }
 
     renderedCallback() {
@@ -68,24 +157,131 @@ export default class AgentforceChatInlineContainer extends LightningElement {
             window.__agentforceChatInlineContainer = null;
             console.log('[AgentforceChatInlineContainer] Unregistered container');
         }
+
+        // Clean up design tokens listener
+        if (this._designTokensHandler) {
+            window.removeEventListener('agentforceDesignTokensReady', this._designTokensHandler);
+            this._designTokensHandler = null;
+        }
+    }
+
+    // ==================== DESIGN TOKENS ====================
+
+    /**
+     * Load design tokens from the global object (set by core component's CPE)
+     */
+    _loadDesignTokens() {
+        if (window.__agentforceChatDesignTokens) {
+            this._designTokens = { ...window.__agentforceChatDesignTokens };
+            console.log('[AgentforceChatInlineContainer] Loaded design tokens:', this._designTokens);
+        } else {
+            console.log('[AgentforceChatInlineContainer] No design tokens available yet');
+        }
+    }
+
+    /**
+     * Handle design tokens ready event
+     */
+    _handleDesignTokensReady(event) {
+        console.log('[AgentforceChatInlineContainer] Design tokens ready event received');
+        this._designTokens = { ...event.detail };
+        console.log('[AgentforceChatInlineContainer] Applied design tokens:', this._designTokens);
+    }
+
+    /**
+     * Get effective value - token value if available, otherwise @api property value
+     */
+    _getToken(tokenName, defaultValue) {
+        if (this._designTokens && this._designTokens[tokenName] !== undefined && this._designTokens[tokenName] !== null) {
+            return this._designTokens[tokenName];
+        }
+        return defaultValue;
     }
 
     // ==================== COMPUTED PROPERTIES ====================
+    // These use design tokens from CPE when available, falling back to @api defaults
 
     get containerId() {
         return this._containerId;
     }
 
+    // Effective values (token or @api default)
+    get effectiveHeight() {
+        return this._getToken('height', this.height);
+    }
+
+    get effectiveWidthPercent() {
+        return this._getToken('widthPercent', this.widthPercent);
+    }
+
+    get effectiveGradientStartColor() {
+        return this._getToken('gradientStartColor', this.gradientStartColor);
+    }
+
+    get effectiveGradientMidColor() {
+        return this._getToken('gradientMidColor', this.gradientMidColor);
+    }
+
+    get effectiveGradientEndColor() {
+        return this._getToken('gradientEndColor', this.gradientEndColor);
+    }
+
+    get effectiveWelcomeTitle() {
+        return this._getToken('welcomeTitle', this.welcomeTitle);
+    }
+
+    get effectiveWelcomeTitleColor() {
+        return this._getToken('welcomeTitleColor', this.welcomeTitleColor);
+    }
+
+    get effectiveCalloutWord() {
+        return this._getToken('calloutWord', this.calloutWord);
+    }
+
+    get effectiveCalloutColor() {
+        return this._getToken('calloutColor', this.calloutColor);
+    }
+
+    get effectiveWelcomeMessage() {
+        return this._getToken('welcomeMessage', this.welcomeMessage);
+    }
+
+    get effectiveAgentPrimaryColor() {
+        return this._getToken('agentPrimaryColor', this.agentPrimaryColor);
+    }
+
+    get effectiveSendButtonColor() {
+        return this._getToken('sendButtonColor', this.sendButtonColor);
+    }
+
+    get effectiveAutoDetectSearchQuery() {
+        return this._getToken('autoDetectSearchQuery', this.autoDetectSearchQuery);
+    }
+
+    get effectiveSearchPagePath() {
+        return this._getToken('searchPagePath', this.searchPagePath);
+    }
+
+    get effectiveSearchQueryParam() {
+        return this._getToken('searchQueryParam', this.searchQueryParam);
+    }
+
+    get effectiveSearchStartsNewChat() {
+        return this._getToken('searchStartsNewChat', true); // Default to true
+    }
+
     get wrapperStyle() {
-        let style = `height: ${this.height}px; width: ${this.widthPercent}%;`;
-        if (this.widthPercent < 100) {
+        const h = this.effectiveHeight;
+        const w = this.effectiveWidthPercent;
+        let style = `height: ${h}px; width: ${w}%;`;
+        if (w < 100) {
             style += ' margin: 0 auto;';
         }
         return style;
     }
 
     get containerStyle() {
-        return `--gradient-start: ${this.gradientStartColor}; --gradient-mid: ${this.gradientMidColor}; --gradient-end: ${this.gradientEndColor};`;
+        return `--gradient-start: ${this.effectiveGradientStartColor}; --gradient-mid: ${this.effectiveGradientMidColor}; --gradient-end: ${this.effectiveGradientEndColor};`;
     }
 
     get isWelcomeVisible() {
@@ -103,30 +299,31 @@ export default class AgentforceChatInlineContainer extends LightningElement {
     }
 
     get welcomeTitleStyle() {
-        return `color: ${this.welcomeTitleColor};`;
+        return `color: ${this.effectiveWelcomeTitleColor};`;
     }
 
     get calloutStyle() {
-        return `color: ${this.calloutColor}; font-weight: 700;`;
+        return `color: ${this.effectiveCalloutColor}; font-weight: 700;`;
     }
 
     get agentIconStyle() {
-        return `background: linear-gradient(135deg, ${this.agentPrimaryColor} 0%, ${this._darkenColor(this.agentPrimaryColor, 40)} 100%);`;
+        const color = this.effectiveAgentPrimaryColor;
+        return `background: linear-gradient(135deg, ${color} 0%, ${this._darkenColor(color, 40)} 100%);`;
     }
 
     get sendButtonStyle() {
         if (this.isSendDisabled) {
             return '';
         }
-        return `background-color: ${this.sendButtonColor};`;
+        return `background-color: ${this.effectiveSendButtonColor};`;
     }
 
     /**
      * Parses the welcome title and splits it into parts for rendering
      */
     get titleParts() {
-        const title = this.welcomeTitle || '';
-        const callout = this.calloutWord || '';
+        const title = this.effectiveWelcomeTitle || '';
+        const callout = this.effectiveCalloutWord || '';
 
         if (!callout) {
             return [{ text: title, isCallout: false }];
@@ -155,6 +352,10 @@ export default class AgentforceChatInlineContainer extends LightningElement {
             });
         }
         return parts;
+    }
+
+    get displayWelcomeMessage() {
+        return this.effectiveWelcomeMessage;
     }
 
     // ==================== EVENT HANDLERS ====================

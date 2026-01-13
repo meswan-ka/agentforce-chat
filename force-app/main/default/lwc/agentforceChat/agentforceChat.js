@@ -50,10 +50,12 @@ export default class AgentforceChat extends LightningElement {
     _messagingReadyHandler = null;
     _chatStartHandler = null;
     _conversationStartHandler = null;
+    _navigationHandler = null;
     _pendingMessage = null;
     _projectionAttempts = 0;
     _projectionComplete = false;
     _messageSent = false;
+    _lastUrl = null;
 
     // ==================== COMPUTED PROPERTIES ====================
 
@@ -76,6 +78,9 @@ export default class AgentforceChat extends LightningElement {
         // Listen for chatstart event from inline container
         this._chatStartHandler = this._handleChatStart.bind(this);
         document.addEventListener('chatstart', this._chatStartHandler);
+
+        // Listen for SPA navigation to re-evaluate FAB visibility
+        this._setupNavigationListener();
 
         console.log('[AgentforceChat] Core component connected');
         console.log('[AgentforceChat] hasInlineContainer:', this.hasInlineContainer);
@@ -108,7 +113,97 @@ export default class AgentforceChat extends LightningElement {
             window.removeEventListener('onEmbeddedMessagingConversationStarted', this._conversationStartHandler);
             this._conversationStartHandler = null;
         }
+        if (this._navigationHandler) {
+            window.removeEventListener('popstate', this._navigationHandler);
+            this._navigationHandler = null;
+        }
+        if (this._navigationInterval) {
+            clearInterval(this._navigationInterval);
+            this._navigationInterval = null;
+        }
         this._bootstrapInitialized = false;
+    }
+
+    // ==================== NAVIGATION HANDLING ====================
+
+    /**
+     * Set up listener for SPA navigation to re-evaluate FAB visibility
+     */
+    _setupNavigationListener() {
+        this._lastUrl = window.location.href;
+
+        // Listen for browser back/forward
+        this._navigationHandler = () => {
+            this._handleNavigation();
+        };
+        window.addEventListener('popstate', this._navigationHandler);
+
+        // Also poll for URL changes (handles programmatic navigation)
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        this._navigationInterval = setInterval(() => {
+            if (window.location.href !== this._lastUrl) {
+                this._lastUrl = window.location.href;
+                this._handleNavigation();
+            }
+        }, 500);
+    }
+
+    /**
+     * Handle navigation - re-evaluate FAB visibility
+     */
+    _handleNavigation() {
+        console.log('[AgentforceChat] Navigation detected, re-evaluating FAB visibility');
+
+        // Wait a tick for the new page's inline container to register (or unregister)
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        setTimeout(() => {
+            const hasContainer = this.hasInlineContainer;
+            console.log('[AgentforceChat] After navigation - hasInlineContainer:', hasContainer);
+
+            this._updateFabVisibility(hasContainer);
+
+            // Reset projection state for new page
+            if (hasContainer) {
+                this._projectionComplete = false;
+                this._projectionAttempts = 0;
+            }
+        }, 300);
+    }
+
+    /**
+     * Update FAB visibility based on whether inline container exists
+     */
+    _updateFabVisibility(hasContainer) {
+        const hidingStyleId = 'agentforce-hide-fab-styles';
+        const initialHidingStyleId = 'agentforce-initial-hiding-styles';
+
+        if (hasContainer) {
+            // Hide the FAB
+            console.log('[AgentforceChat] Hiding FAB (inline container present)');
+            this._hideFabButton();
+            this._injectInitialHidingStyles();
+        } else {
+            // Show the FAB - remove hiding styles
+            console.log('[AgentforceChat] Showing FAB (no inline container)');
+
+            const hidingStyle = document.getElementById(hidingStyleId);
+            if (hidingStyle) {
+                hidingStyle.remove();
+                console.log('[AgentforceChat] Removed FAB hiding styles');
+            }
+
+            const initialStyle = document.getElementById(initialHidingStyleId);
+            if (initialStyle) {
+                initialStyle.remove();
+                console.log('[AgentforceChat] Removed initial hiding styles');
+            }
+
+            // Also remove classes from embedded-messaging
+            const embeddedMessaging = document.getElementById('embedded-messaging');
+            if (embeddedMessaging) {
+                embeddedMessaging.classList.remove('projected-inline', 'show-chat');
+            }
+        }
     }
 
     // ==================== CONFIGURATION ====================
@@ -128,10 +223,51 @@ export default class AgentforceChat extends LightningElement {
             if (config.siteUrl !== undefined) this.siteUrl = config.siteUrl;
             if (config.scrtUrl !== undefined) this.scrtUrl = config.scrtUrl;
 
+            // Share design tokens globally for inline container to use
+            this._shareDesignTokens(config);
+
             this._configApplied = true;
         } catch (e) {
             console.error('[AgentforceChat] Failed to parse configJson:', e);
         }
+    }
+
+    /**
+     * Share design tokens globally so inline container can apply them
+     */
+    _shareDesignTokens(config) {
+        window.__agentforceChatDesignTokens = {
+            // Welcome screen
+            gradientStartColor: config.gradientStartColor,
+            gradientMidColor: config.gradientMidColor,
+            gradientEndColor: config.gradientEndColor,
+            welcomeTitle: config.welcomeTitle,
+            welcomeTitleColor: config.welcomeTitleColor,
+            calloutWord: config.calloutWord,
+            calloutColor: config.calloutColor,
+            calloutBold: config.calloutBold,
+            calloutItalic: config.calloutItalic,
+            calloutFontWeight: config.calloutFontWeight,
+            welcomeMessage: config.welcomeMessage,
+            // Branding
+            agentPrimaryColor: config.agentPrimaryColor,
+            sendButtonColor: config.sendButtonColor,
+            // Display
+            height: config.height,
+            widthPercent: config.widthPercent,
+            // Search/conditional
+            autoDetectSearchQuery: config.enableConditionalDisplay,
+            searchPagePath: config.conditionalPathPattern,
+            searchQueryParam: config.conditionalQueryParam,
+            searchStartsNewChat: config.searchStartsNewChat !== false // Default true
+        };
+
+        console.log('[AgentforceChat] Shared design tokens:', window.__agentforceChatDesignTokens);
+
+        // Dispatch event for any listening components
+        window.dispatchEvent(new CustomEvent('agentforceDesignTokensReady', {
+            detail: window.__agentforceChatDesignTokens
+        }));
     }
 
     // ==================== BOOTSTRAP INITIALIZATION ====================
@@ -522,12 +658,43 @@ export default class AgentforceChat extends LightningElement {
      * Handle chatstart event from inline container
      */
     _handleChatStart(event) {
-        const { message } = event.detail || {};
-        console.log('[AgentforceChat] Chat start requested:', message);
+        const { message, isSearchQuery } = event.detail || {};
+        console.log('[AgentforceChat] Chat start requested:', message, 'isSearchQuery:', isSearchQuery);
+
+        // Check if we should start a new chat or resume existing
+        const searchStartsNewChat = window.__agentforceChatDesignTokens?.searchStartsNewChat !== false;
+
+        // If this is a search query and searchStartsNewChat is false, just send the message
+        // without launching a new chat session
+        if (isSearchQuery && !searchStartsNewChat && this._bootstrapInitialized) {
+            console.log('[AgentforceChat] Resuming existing chat with search query');
+
+            // Hide the welcome screen
+            const container = window.__agentforceChatInlineContainer;
+            if (container?.hideWelcome) {
+                container.hideWelcome();
+            }
+
+            // Project if not already done
+            this._projectChatToContainer();
+
+            // Send the message to existing conversation
+            const utilAPI = window.embeddedservice_bootstrap?.utilAPI;
+            if (utilAPI?.sendTextMessage && message) {
+                console.log('[AgentforceChat] Sending search query to existing chat:', message);
+                try {
+                    utilAPI.sendTextMessage(message);
+                } catch (error) {
+                    console.error('[AgentforceChat] Error sending search query:', error);
+                }
+            }
+            return;
+        }
 
         // Store the pending message
         if (message) {
             this._pendingMessage = message;
+            this._messageSent = false; // Reset flag for new message
         }
 
         // Hide the welcome screen in the container

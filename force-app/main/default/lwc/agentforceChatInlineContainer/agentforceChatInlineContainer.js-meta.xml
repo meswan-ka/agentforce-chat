@@ -26,6 +26,9 @@
             <property name="gradientEndColor" type="String" default="#ffffff" label="Gradient End Color"/>
             <property name="agentPrimaryColor" type="String" default="#0176d3" label="Agent Icon Color"/>
             <property name="sendButtonColor" type="String" default="#0176d3" label="Send Button Color"/>
+            <property name="autoDetectSearchQuery" type="Boolean" default="false" label="Auto-Detect Search Query" description="Automatically detect and send search query from URL on search pages"/>
+            <property name="searchPagePath" type="String" default="/global-search" label="Search Page Path" description="URL path pattern to identify search pages"/>
+            <property name="searchQueryParam" type="String" default="term" label="Search Query Parameter" description="URL parameter name containing the search query"/>
         </targetConfig>
     </targetConfigs>
 </LightningComponentBundle>

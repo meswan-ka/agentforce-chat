@@ -329,6 +329,14 @@
                         onchange={handleInvertConditionChange}
                         field-level-help="Show inline when condition does NOT match (useful for showing inline everywhere except specific pages)">
                     </lightning-input>
+
+                    <lightning-input
+                        type="checkbox"
+                        label="New Chat Per Search"
+                        checked={searchStartsNewChat}
+                        onchange={handleSearchStartsNewChatChange}
+                        field-level-help="When enabled, each search query starts a fresh conversation. When disabled, search queries continue the existing conversation.">
+                    </lightning-input>
                 </template>
             </div>
         </template>

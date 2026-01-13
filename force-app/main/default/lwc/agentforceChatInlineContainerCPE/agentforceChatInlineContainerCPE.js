@@ -1,10 +1,10 @@
 import { LightningElement, api, track } from 'lwc';
 
 /**
- * Custom Property Editor for Agentforce Chat (Inline) component
- * Follows Experience Cloud CPE contract with @api value object
+ * Custom Property Editor for Agentforce Chat Inline Container component
+ * Configures welcome screen, branding, and search behavior
  */
-export default class AgentforceChatCPE extends LightningElement {
+export default class AgentforceChatInlineContainerCPE extends LightningElement {
     // Experience Cloud CPE Contract - Required @api properties
     @api label;
     @api description;
@@ -20,20 +20,11 @@ export default class AgentforceChatCPE extends LightningElement {
 
     // Default values
     static DEFAULTS = {
-        orgId: '',
-        deploymentDeveloperName: '',
-        siteUrl: '',
-        scrtUrl: '',
-        displayMode: 'inline',
+        // Display
         height: 600,
         widthPercent: 100,
-        showHeader: false,
-        enableConditionalDisplay: false,
-        conditionalPathPattern: 'global-search',
-        conditionalQueryParam: 'term',
-        invertCondition: false,
-        searchStartsNewChat: true, // true = new chat per search, false = resume existing
-        // Welcome Screen Configuration
+        showWelcomeScreen: true,
+        // Welcome Screen
         gradientStartColor: '#e8f4fd',
         gradientMidColor: '#f5f9fc',
         gradientEndColor: '#ffffff',
@@ -47,8 +38,14 @@ export default class AgentforceChatCPE extends LightningElement {
         calloutFontWeight: '700',
         customizeCalloutWord: false,
         welcomeMessage: 'Ask questions, get personalized answers, and take action with Agentforce.',
+        // Branding
         agentPrimaryColor: '#0176d3',
-        sendButtonColor: '#0176d3'
+        sendButtonColor: '#0176d3',
+        // Search Configuration
+        autoDetectSearchQuery: false,
+        searchPagePath: '/global-search',
+        searchQueryParam: 'term',
+        searchStartsNewChat: true
     };
 
     // Experience Cloud CPE Contract - value getter/setter
@@ -80,24 +77,16 @@ export default class AgentforceChatCPE extends LightningElement {
         );
 
         // Merge with defaults
-        this._config = { ...AgentforceChatCPE.DEFAULTS, ...filtered };
+        this._config = { ...AgentforceChatInlineContainerCPE.DEFAULTS, ...filtered };
     }
 
     // UI State - Section expansion
-    @track isDeploymentExpanded = true;
     @track isDisplayExpanded = true;
     @track isAppearanceExpanded = false;
     @track isWelcomeExpanded = false;
-    @track isConditionalExpanded = false;
+    @track isSearchExpanded = false;
 
     // ==================== OPTIONS ====================
-
-    get displayModeOptions() {
-        return [
-            { label: 'Inline (in container)', value: 'inline' },
-            { label: 'Floating (FAB button)', value: 'floating' }
-        ];
-    }
 
     get heightOptions() {
         return [
@@ -118,10 +107,6 @@ export default class AgentforceChatCPE extends LightningElement {
 
     // ==================== SECTION ICONS ====================
 
-    get deploymentIconName() {
-        return this.isDeploymentExpanded ? 'utility:chevrondown' : 'utility:chevronright';
-    }
-
     get displayIconName() {
         return this.isDisplayExpanded ? 'utility:chevrondown' : 'utility:chevronright';
     }
@@ -134,28 +119,20 @@ export default class AgentforceChatCPE extends LightningElement {
         return this.isWelcomeExpanded ? 'utility:chevrondown' : 'utility:chevronright';
     }
 
-    get conditionalIconName() {
-        return this.isConditionalExpanded ? 'utility:chevrondown' : 'utility:chevronright';
+    get searchIconName() {
+        return this.isSearchExpanded ? 'utility:chevrondown' : 'utility:chevronright';
     }
 
     // ==================== TEMPLATE BINDINGS ====================
 
-    get orgId() { return this._config.orgId; }
-    get deploymentDeveloperName() { return this._config.deploymentDeveloperName; }
-    get siteUrl() { return this._config.siteUrl; }
-    get scrtUrl() { return this._config.scrtUrl; }
-    get displayMode() { return this._config.displayMode; }
+    // Display
     get height() { return this._config.height; }
     get widthPercent() { return this._config.widthPercent; }
-    get showHeader() { return this._config.showHeader; }
-    get enableConditionalDisplay() { return this._config.enableConditionalDisplay; }
-    get conditionalPathPattern() { return this._config.conditionalPathPattern; }
-    get conditionalQueryParam() { return this._config.conditionalQueryParam; }
-    get invertCondition() { return this._config.invertCondition; }
-    get searchStartsNewChat() { return this._config.searchStartsNewChat; }
+    get showWelcomeScreen() { return this._config.showWelcomeScreen; }
 
-    // Welcome screen bindings
+    // Welcome screen
     get gradientStartColor() { return this._config.gradientStartColor; }
+    get gradientMidColor() { return this._config.gradientMidColor; }
     get gradientEndColor() { return this._config.gradientEndColor; }
     get customizeGradient() { return this._config.customizeGradient; }
     get showGradientControls() { return this._config.customizeGradient; }
@@ -169,8 +146,16 @@ export default class AgentforceChatCPE extends LightningElement {
     get customizeCalloutWord() { return this._config.customizeCalloutWord; }
     get showCalloutWordControls() { return this._config.customizeCalloutWord; }
     get welcomeMessage() { return this._config.welcomeMessage; }
+
+    // Branding
     get agentPrimaryColor() { return this._config.agentPrimaryColor; }
     get sendButtonColor() { return this._config.sendButtonColor; }
+
+    // Search
+    get autoDetectSearchQuery() { return this._config.autoDetectSearchQuery; }
+    get searchPagePath() { return this._config.searchPagePath; }
+    get searchQueryParam() { return this._config.searchQueryParam; }
+    get searchStartsNewChat() { return this._config.searchStartsNewChat; }
 
     // Stateful button variants for Bold/Italic
     get boldButtonVariant() {
@@ -208,10 +193,6 @@ export default class AgentforceChatCPE extends LightningElement {
 
     // ==================== SECTION TOGGLES ====================
 
-    toggleDeployment() {
-        this.isDeploymentExpanded = !this.isDeploymentExpanded;
-    }
-
     toggleDisplay() {
         this.isDisplayExpanded = !this.isDisplayExpanded;
     }
@@ -224,33 +205,11 @@ export default class AgentforceChatCPE extends LightningElement {
         this.isWelcomeExpanded = !this.isWelcomeExpanded;
     }
 
-    toggleConditional() {
-        this.isConditionalExpanded = !this.isConditionalExpanded;
-    }
-
-    // ==================== DEPLOYMENT HANDLERS ====================
-
-    handleOrgIdChange(event) {
-        this.updateProperty('orgId', event.detail.value);
-    }
-
-    handleDeploymentChange(event) {
-        this.updateProperty('deploymentDeveloperName', event.detail.value);
-    }
-
-    handleSiteUrlChange(event) {
-        this.updateProperty('siteUrl', event.detail.value);
-    }
-
-    handleScrtUrlChange(event) {
-        this.updateProperty('scrtUrl', event.detail.value);
+    toggleSearch() {
+        this.isSearchExpanded = !this.isSearchExpanded;
     }
 
     // ==================== DISPLAY HANDLERS ====================
-
-    handleDisplayModeChange(event) {
-        this.updateProperty('displayMode', event.detail.value);
-    }
 
     handleHeightChange(event) {
         this.updateProperty('height', parseInt(event.detail.value, 10) || 600);
@@ -260,8 +219,8 @@ export default class AgentforceChatCPE extends LightningElement {
         this.updateProperty('widthPercent', parseInt(event.detail.value, 10) || 100);
     }
 
-    handleShowHeaderChange(event) {
-        this.updateProperty('showHeader', event.target.checked);
+    handleShowWelcomeScreenChange(event) {
+        this.updateProperty('showWelcomeScreen', event.target.checked);
     }
 
     // ==================== APPEARANCE HANDLERS ====================
@@ -283,6 +242,7 @@ export default class AgentforceChatCPE extends LightningElement {
                 ...this._config,
                 customizeGradient: false,
                 gradientStartColor: '#e8f4fd',
+                gradientMidColor: '#f5f9fc',
                 gradientEndColor: '#ffffff'
             };
         } else {
@@ -294,6 +254,11 @@ export default class AgentforceChatCPE extends LightningElement {
     handleGradientStartColorChange(event) {
         const value = event.target.value || event.detail.value;
         this.updateProperty('gradientStartColor', value);
+    }
+
+    handleGradientMidColorChange(event) {
+        const value = event.target.value || event.detail.value;
+        this.updateProperty('gradientMidColor', value);
     }
 
     handleGradientEndColorChange(event) {
@@ -355,22 +320,18 @@ export default class AgentforceChatCPE extends LightningElement {
         this.updateProperty('calloutFontWeight', event.detail.value);
     }
 
-    // ==================== CONDITIONAL DISPLAY HANDLERS ====================
+    // ==================== SEARCH HANDLERS ====================
 
-    handleConditionalToggle(event) {
-        this.updateProperty('enableConditionalDisplay', event.target.checked);
+    handleAutoDetectSearchQueryChange(event) {
+        this.updateProperty('autoDetectSearchQuery', event.target.checked);
     }
 
-    handlePathPatternChange(event) {
-        this.updateProperty('conditionalPathPattern', event.detail.value);
+    handleSearchPagePathChange(event) {
+        this.updateProperty('searchPagePath', event.detail.value);
     }
 
-    handleQueryParamChange(event) {
-        this.updateProperty('conditionalQueryParam', event.detail.value);
-    }
-
-    handleInvertConditionChange(event) {
-        this.updateProperty('invertCondition', event.target.checked);
+    handleSearchQueryParamChange(event) {
+        this.updateProperty('searchQueryParam', event.detail.value);
     }
 
     handleSearchStartsNewChatChange(event) {
