@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
-    <apiVersion>64.0</apiVersion>
+    <apiVersion>66.0</apiVersion>
     <isExposed>true</isExposed>
     <masterLabel>Agentforce Chat</masterLabel>
     <description>Core Agentforce Chat component. Initializes Embedded Service Deployment (Enhanced Web V2). If an agentforceChatInlineContainer component exists on the page, the chat UI is projected into it. Otherwise displays as a floating FAB.</description>

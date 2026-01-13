@@ -1,48 +1,4 @@
 <template>
-    <!-- DEPLOYMENT SETUP SECTION -->
-    <div class="slds-card slds-card_boundary">
-        <div class="section-header" onclick={toggleDeployment}>
-            <lightning-icon icon-name={deploymentIconName} size="xx-small"></lightning-icon>
-            <span class="section-title">Deployment Setup</span>
-        </div>
-        <template lwc:if={isDeploymentExpanded}>
-            <div class="section-content">
-                <lightning-input
-                    label="Org ID"
-                    value={orgId}
-                    onchange={handleOrgIdChange}
-                    placeholder="00D..."
-                    field-level-help="Your Salesforce Org ID (starts with 00D)">
-                </lightning-input>
-
-                <lightning-input
-                    label="Deployment Developer Name"
-                    value={deploymentDeveloperName}
-                    onchange={handleDeploymentChange}
-                    placeholder="My_Embedded_Service"
-                    field-level-help="The API name of your Embedded Service Deployment">
-                </lightning-input>
-
-                <lightning-input
-                    label="Site URL"
-                    value={siteUrl}
-                    onchange={handleSiteUrlChange}
-                    placeholder="https://yoursite.my.site.com"
-                    field-level-help="Your Experience Cloud site URL">
-                </lightning-input>
-
-                <lightning-input
-                    label="SCRT URL"
-                    value={scrtUrl}
-                    onchange={handleScrtUrlChange}
-                    placeholder="https://yourorg.my.salesforce-scrt.com"
-                    field-level-help="Service Cloud Real-Time URL from your Embedded Service Deployment settings"
-                    required>
-                </lightning-input>
-            </div>
-        </template>
-    </div>
-
     <!-- DISPLAY SECTION -->
     <div class="slds-card slds-card_boundary">
         <div class="section-header" onclick={toggleDisplay}>
@@ -51,14 +7,6 @@
         </div>
         <template lwc:if={isDisplayExpanded}>
             <div class="section-content">
-                <lightning-combobox
-                    label="Display Mode"
-                    value={displayMode}
-                    options={displayModeOptions}
-                    onchange={handleDisplayModeChange}
-                    field-level-help="Inline renders chat in this container. Floating shows the default FAB button.">
-                </lightning-combobox>
-
                 <lightning-combobox
                     label="Height"
                     value={height}
@@ -77,10 +25,10 @@
 
                 <lightning-input
                     type="checkbox"
-                    label="Show Chat Header"
-                    checked={showHeader}
-                    onchange={handleShowHeaderChange}
-                    field-level-help="Show or hide the Salesforce-provided chat header">
+                    label="Show Welcome Screen"
+                    checked={showWelcomeScreen}
+                    onchange={handleShowWelcomeScreenChange}
+                    field-level-help="Display the custom welcome screen before chat starts">
                 </lightning-input>
             </div>
         </template>
@@ -95,7 +43,7 @@
         <template lwc:if={isAppearanceExpanded}>
             <div class="section-content">
                 <div class="color-field">
-                    <label class="color-label">Agent Primary Color</label>
+                    <label class="color-label">Agent Icon Color</label>
                     <div class="color-picker-row">
                         <input
                             type="color"
@@ -151,6 +99,24 @@
                                     type="text"
                                     value={gradientStartColor}
                                     onchange={handleGradientStartColorChange}
+                                    class="color-hex-input"
+                                    variant="label-hidden">
+                                </lightning-input>
+                            </div>
+                        </div>
+
+                        <div class="color-field">
+                            <label class="color-label">Gradient Middle</label>
+                            <div class="color-picker-row">
+                                <input
+                                    type="color"
+                                    value={gradientMidColor}
+                                    onchange={handleGradientMidColorChange}
+                                    class="color-swatch">
+                                <lightning-input
+                                    type="text"
+                                    value={gradientMidColor}
+                                    onchange={handleGradientMidColorChange}
                                     class="color-hex-input"
                                     variant="label-hidden">
                                 </lightning-input>
@@ -284,6 +250,51 @@
                             </lightning-combobox>
                         </template>
                     </div>
+                </template>
+            </div>
+        </template>
+    </div>
+
+    <!-- SEARCH SETTINGS SECTION -->
+    <div class="slds-card slds-card_boundary">
+        <div class="section-header" onclick={toggleSearch}>
+            <lightning-icon icon-name={searchIconName} size="xx-small"></lightning-icon>
+            <span class="section-title">Search Page Settings</span>
+        </div>
+        <template lwc:if={isSearchExpanded}>
+            <div class="section-content">
+                <lightning-input
+                    type="checkbox"
+                    label="Auto-Detect Search Query"
+                    checked={autoDetectSearchQuery}
+                    onchange={handleAutoDetectSearchQueryChange}
+                    field-level-help="Automatically detect and send search query from URL when on a search page">
+                </lightning-input>
+
+                <template lwc:if={autoDetectSearchQuery}>
+                    <lightning-input
+                        label="Search Page Path"
+                        value={searchPagePath}
+                        onchange={handleSearchPagePathChange}
+                        placeholder="/global-search"
+                        field-level-help="URL path pattern to identify search pages (e.g., /global-search)">
+                    </lightning-input>
+
+                    <lightning-input
+                        label="Search Query Parameter"
+                        value={searchQueryParam}
+                        onchange={handleSearchQueryParamChange}
+                        placeholder="term"
+                        field-level-help="URL parameter containing the search query (e.g., 'term' for ?term=search)">
+                    </lightning-input>
+
+                    <lightning-input
+                        type="checkbox"
+                        label="New Chat Per Search"
+                        checked={searchStartsNewChat}
+                        onchange={handleSearchStartsNewChatChange}
+                        field-level-help="When enabled, each search starts a fresh conversation. When disabled, search continues the existing conversation.">
+                    </lightning-input>
                 </template>
             </div>
         </template>

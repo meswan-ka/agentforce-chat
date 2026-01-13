@@ -28,11 +28,6 @@ export default class AgentforceChatCPE extends LightningElement {
         height: 600,
         widthPercent: 100,
         showHeader: false,
-        enableConditionalDisplay: false,
-        conditionalPathPattern: 'global-search',
-        conditionalQueryParam: 'term',
-        invertCondition: false,
-        searchStartsNewChat: true, // true = new chat per search, false = resume existing
         // Welcome Screen Configuration
         gradientStartColor: '#e8f4fd',
         gradientMidColor: '#f5f9fc',
@@ -88,7 +83,6 @@ export default class AgentforceChatCPE extends LightningElement {
     @track isDisplayExpanded = true;
     @track isAppearanceExpanded = false;
     @track isWelcomeExpanded = false;
-    @track isConditionalExpanded = false;
 
     // ==================== OPTIONS ====================
 
@@ -134,10 +128,6 @@ export default class AgentforceChatCPE extends LightningElement {
         return this.isWelcomeExpanded ? 'utility:chevrondown' : 'utility:chevronright';
     }
 
-    get conditionalIconName() {
-        return this.isConditionalExpanded ? 'utility:chevrondown' : 'utility:chevronright';
-    }
-
     // ==================== TEMPLATE BINDINGS ====================
 
     get orgId() { return this._config.orgId; }
@@ -148,11 +138,6 @@ export default class AgentforceChatCPE extends LightningElement {
     get height() { return this._config.height; }
     get widthPercent() { return this._config.widthPercent; }
     get showHeader() { return this._config.showHeader; }
-    get enableConditionalDisplay() { return this._config.enableConditionalDisplay; }
-    get conditionalPathPattern() { return this._config.conditionalPathPattern; }
-    get conditionalQueryParam() { return this._config.conditionalQueryParam; }
-    get invertCondition() { return this._config.invertCondition; }
-    get searchStartsNewChat() { return this._config.searchStartsNewChat; }
 
     // Welcome screen bindings
     get gradientStartColor() { return this._config.gradientStartColor; }
@@ -222,10 +207,6 @@ export default class AgentforceChatCPE extends LightningElement {
 
     toggleWelcome() {
         this.isWelcomeExpanded = !this.isWelcomeExpanded;
-    }
-
-    toggleConditional() {
-        this.isConditionalExpanded = !this.isConditionalExpanded;
     }
 
     // ==================== DEPLOYMENT HANDLERS ====================
@@ -353,27 +334,5 @@ export default class AgentforceChatCPE extends LightningElement {
 
     handleCalloutFontWeightChange(event) {
         this.updateProperty('calloutFontWeight', event.detail.value);
-    }
-
-    // ==================== CONDITIONAL DISPLAY HANDLERS ====================
-
-    handleConditionalToggle(event) {
-        this.updateProperty('enableConditionalDisplay', event.target.checked);
-    }
-
-    handlePathPatternChange(event) {
-        this.updateProperty('conditionalPathPattern', event.detail.value);
-    }
-
-    handleQueryParamChange(event) {
-        this.updateProperty('conditionalQueryParam', event.detail.value);
-    }
-
-    handleInvertConditionChange(event) {
-        this.updateProperty('invertCondition', event.target.checked);
-    }
-
-    handleSearchStartsNewChatChange(event) {
-        this.updateProperty('searchStartsNewChat', event.target.checked);
     }
 }
