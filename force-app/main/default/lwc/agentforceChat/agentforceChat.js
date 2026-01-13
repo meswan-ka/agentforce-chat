@@ -304,6 +304,18 @@ export default class AgentforceChat extends LightningElement {
 
                 // Project the active chat into the container
                 this._projectChatToContainer();
+
+                // If chat is minimized (FAB mode), auto-maximize it for inline display
+                const embeddedMessaging = document.getElementById('embedded-messaging');
+                const iframe = embeddedMessaging?.querySelector('iframe');
+                const isMaximized = iframe?.classList.contains('isMaximized');
+                if (!isMaximized) {
+                    const utilAPI = window.embeddedservice_bootstrap?.utilAPI;
+                    if (utilAPI?.launchChat) {
+                        console.log('[AgentforceChat] Chat is minimized, auto-maximizing for inline display');
+                        utilAPI.launchChat();
+                    }
+                }
             }
         }
         // Only show FAB (cleanup inline styles) after final check confirms no container
@@ -581,19 +593,25 @@ export default class AgentforceChat extends LightningElement {
                     // Remove old projection class so we can re-add with new position
                     existingChat.classList.remove('projected-inline', 'show-chat');
 
-                    // ALWAYS hide welcome and project for inline→inline navigation
+                    // ALWAYS hide welcome and project for FAB→inline or inline→inline navigation
                     // The chat exists and we're on an inline page, so hide welcome immediately
                     const container = window.__agentforceChatInlineContainer;
-                    console.log('[AgentforceChat] Inline→Inline detected, hiding welcome and projecting');
-                    console.log('[AgentforceChat] isMaximized:', existingIframe.classList.contains('isMaximized'));
+                    const isMaximized = existingIframe.classList.contains('isMaximized');
+                    console.log('[AgentforceChat] Existing chat detected, hiding welcome and projecting');
+                    console.log('[AgentforceChat] isMaximized:', isMaximized);
 
                     if (container?.hideWelcome) {
                         container.hideWelcome();
                     }
 
-                    // Project immediately - don't wait for isMaximized
-                    // The chat UI will be positioned correctly when it becomes visible
+                    // Project immediately - position will be set correctly
                     this._projectChatToContainer();
+
+                    // If chat is minimized (FAB mode), auto-maximize it for inline display
+                    if (!isMaximized && bootstrap.utilAPI?.launchChat) {
+                        console.log('[AgentforceChat] Chat is minimized, auto-maximizing for inline display');
+                        bootstrap.utilAPI.launchChat();
+                    }
                 } else {
                     // No inline container on this page - clean up inline styles for FAB mode
                     this._cleanupInlineStyles();
