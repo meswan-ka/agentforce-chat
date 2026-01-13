@@ -8,7 +8,7 @@
     border: 1px solid #d8dde6;
     border-radius: 8px;
     margin-bottom: 0.75rem;
-    overflow: hidden;
+    overflow: visible;
 }
 
 /* Section Header */

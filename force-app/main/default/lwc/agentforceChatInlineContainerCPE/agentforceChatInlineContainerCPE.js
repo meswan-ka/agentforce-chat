@@ -140,7 +140,6 @@ export default class AgentforceChatInlineContainerCPE extends LightningElement {
     get welcomeTitleColor() { return this._config.welcomeTitleColor; }
     get calloutWord() { return this._config.calloutWord; }
     get calloutColor() { return this._config.calloutColor; }
-    get calloutBold() { return this._config.calloutBold; }
     get calloutItalic() { return this._config.calloutItalic; }
     get calloutFontWeight() { return this._config.calloutFontWeight; }
     get customizeCalloutWord() { return this._config.customizeCalloutWord; }
@@ -157,15 +156,7 @@ export default class AgentforceChatInlineContainerCPE extends LightningElement {
     get searchQueryParam() { return this._config.searchQueryParam; }
     get searchStartsNewChat() { return this._config.searchStartsNewChat; }
 
-    // Stateful button variants for Bold/Italic
-    get boldButtonVariant() {
-        return this._config.calloutBold ? 'brand' : 'neutral';
-    }
-
-    get boldButtonClass() {
-        return this._config.calloutBold ? 'style-btn active' : 'style-btn';
-    }
-
+    // Stateful button variant for Italic
     get italicButtonVariant() {
         return this._config.calloutItalic ? 'brand' : 'neutral';
     }
@@ -306,10 +297,6 @@ export default class AgentforceChatInlineContainerCPE extends LightningElement {
     handleCalloutColorChange(event) {
         const value = event.target.value || event.detail.value;
         this.updateProperty('calloutColor', value);
-    }
-
-    handleBoldToggle() {
-        this.updateProperty('calloutBold', !this._config.calloutBold);
     }
 
     handleItalicToggle() {

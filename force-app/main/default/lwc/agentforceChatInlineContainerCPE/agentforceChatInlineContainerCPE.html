@@ -225,13 +225,6 @@
                             <label class="style-buttons-label">Text Style</label>
                             <div class="style-buttons">
                                 <lightning-button
-                                    variant={boldButtonVariant}
-                                    label="B"
-                                    title="Bold"
-                                    onclick={handleBoldToggle}
-                                    class={boldButtonClass}>
-                                </lightning-button>
-                                <lightning-button
                                     variant={italicButtonVariant}
                                     label="I"
                                     title="Italic"
@@ -241,14 +234,12 @@
                             </div>
                         </div>
 
-                        <template lwc:if={calloutBold}>
-                            <lightning-combobox
-                                label="Font Weight"
-                                value={calloutFontWeight}
-                                options={fontWeightOptions}
-                                onchange={handleCalloutFontWeightChange}>
-                            </lightning-combobox>
-                        </template>
+                        <lightning-combobox
+                            label="Font Weight"
+                            value={calloutFontWeight}
+                            options={fontWeightOptions}
+                            onchange={handleCalloutFontWeightChange}>
+                        </lightning-combobox>
                     </div>
                 </template>
             </div>
