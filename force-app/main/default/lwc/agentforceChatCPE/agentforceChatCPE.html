@@ -1,0 +1,348 @@
+<template>
+    <!-- DEPLOYMENT SETUP SECTION -->
+    <div class="slds-card slds-card_boundary">
+        <div class="section-header" onclick={toggleDeployment}>
+            <lightning-icon icon-name={deploymentIconName} size="xx-small"></lightning-icon>
+            <span class="section-title">Deployment Setup</span>
+        </div>
+        <template lwc:if={isDeploymentExpanded}>
+            <div class="section-content">
+                <lightning-input
+                    label="Org ID"
+                    value={orgId}
+                    onchange={handleOrgIdChange}
+                    placeholder="00D..."
+                    field-level-help="Your Salesforce Org ID (starts with 00D)">
+                </lightning-input>
+
+                <lightning-input
+                    label="Deployment Developer Name"
+                    value={deploymentDeveloperName}
+                    onchange={handleDeploymentChange}
+                    placeholder="My_Embedded_Service"
+                    field-level-help="The API name of your Embedded Service Deployment">
+                </lightning-input>
+
+                <lightning-input
+                    label="Site URL"
+                    value={siteUrl}
+                    onchange={handleSiteUrlChange}
+                    placeholder="https://yoursite.my.site.com"
+                    field-level-help="Your Experience Cloud site URL">
+                </lightning-input>
+
+                <lightning-input
+                    label="SCRT URL"
+                    value={scrtUrl}
+                    onchange={handleScrtUrlChange}
+                    placeholder="https://yourorg.my.salesforce-scrt.com"
+                    field-level-help="Service Cloud Real-Time URL from your Embedded Service Deployment settings"
+                    required>
+                </lightning-input>
+            </div>
+        </template>
+    </div>
+
+    <!-- DISPLAY SECTION -->
+    <div class="slds-card slds-card_boundary">
+        <div class="section-header" onclick={toggleDisplay}>
+            <lightning-icon icon-name={displayIconName} size="xx-small"></lightning-icon>
+            <span class="section-title">Display Settings</span>
+        </div>
+        <template lwc:if={isDisplayExpanded}>
+            <div class="section-content">
+                <lightning-combobox
+                    label="Display Mode"
+                    value={displayMode}
+                    options={displayModeOptions}
+                    onchange={handleDisplayModeChange}
+                    field-level-help="Inline renders chat in this container. Floating shows the default FAB button.">
+                </lightning-combobox>
+
+                <lightning-combobox
+                    label="Height"
+                    value={height}
+                    options={heightOptions}
+                    onchange={handleHeightChange}>
+                </lightning-combobox>
+
+                <lightning-slider
+                    label="Width (%)"
+                    value={widthPercent}
+                    min="50"
+                    max="100"
+                    step="5"
+                    onchange={handleWidthChange}>
+                </lightning-slider>
+
+                <lightning-input
+                    type="checkbox"
+                    label="Show Chat Header"
+                    checked={showHeader}
+                    onchange={handleShowHeaderChange}
+                    field-level-help="Show or hide the Salesforce-provided chat header">
+                </lightning-input>
+            </div>
+        </template>
+    </div>
+
+    <!-- APPEARANCE SECTION -->
+    <div class="slds-card slds-card_boundary">
+        <div class="section-header" onclick={toggleAppearance}>
+            <lightning-icon icon-name={appearanceIconName} size="xx-small"></lightning-icon>
+            <span class="section-title">Appearance</span>
+        </div>
+        <template lwc:if={isAppearanceExpanded}>
+            <div class="section-content">
+                <div class="color-field">
+                    <label class="color-label">Agent Primary Color</label>
+                    <div class="color-picker-row">
+                        <input
+                            type="color"
+                            value={agentPrimaryColor}
+                            onchange={handleAgentPrimaryColorChange}
+                            class="color-swatch">
+                        <lightning-input
+                            type="text"
+                            value={agentPrimaryColor}
+                            onchange={handleAgentPrimaryColorChange}
+                            class="color-hex-input"
+                            variant="label-hidden">
+                        </lightning-input>
+                    </div>
+                </div>
+
+                <div class="color-field">
+                    <label class="color-label">Send Button Color</label>
+                    <div class="color-picker-row">
+                        <input
+                            type="color"
+                            value={sendButtonColor}
+                            onchange={handleSendButtonColorChange}
+                            class="color-swatch">
+                        <lightning-input
+                            type="text"
+                            value={sendButtonColor}
+                            onchange={handleSendButtonColorChange}
+                            class="color-hex-input"
+                            variant="label-hidden">
+                        </lightning-input>
+                    </div>
+                </div>
+
+                <lightning-input
+                    type="checkbox"
+                    label="Customize Background Gradient"
+                    checked={customizeGradient}
+                    onchange={handleCustomizeGradientToggle}>
+                </lightning-input>
+
+                <template lwc:if={showGradientControls}>
+                    <div class="nested-controls">
+                        <div class="color-field">
+                            <label class="color-label">Gradient Start (Top)</label>
+                            <div class="color-picker-row">
+                                <input
+                                    type="color"
+                                    value={gradientStartColor}
+                                    onchange={handleGradientStartColorChange}
+                                    class="color-swatch">
+                                <lightning-input
+                                    type="text"
+                                    value={gradientStartColor}
+                                    onchange={handleGradientStartColorChange}
+                                    class="color-hex-input"
+                                    variant="label-hidden">
+                                </lightning-input>
+                            </div>
+                        </div>
+
+                        <div class="color-field">
+                            <label class="color-label">Gradient End (Bottom)</label>
+                            <div class="color-picker-row">
+                                <input
+                                    type="color"
+                                    value={gradientEndColor}
+                                    onchange={handleGradientEndColorChange}
+                                    class="color-swatch">
+                                <lightning-input
+                                    type="text"
+                                    value={gradientEndColor}
+                                    onchange={handleGradientEndColorChange}
+                                    class="color-hex-input"
+                                    variant="label-hidden">
+                                </lightning-input>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+    </div>
+
+    <!-- WELCOME & BRANDING SECTION -->
+    <div class="slds-card slds-card_boundary">
+        <div class="section-header" onclick={toggleWelcome}>
+            <lightning-icon icon-name={welcomeIconName} size="xx-small"></lightning-icon>
+            <span class="section-title">Welcome &amp; Branding</span>
+        </div>
+        <template lwc:if={isWelcomeExpanded}>
+            <div class="section-content">
+                <lightning-input
+                    label="Welcome Title"
+                    value={welcomeTitle}
+                    onchange={handleWelcomeTitleChange}
+                    placeholder="How can Agentforce help?">
+                </lightning-input>
+
+                <div class="color-field">
+                    <label class="color-label">Title Color</label>
+                    <div class="color-picker-row">
+                        <input
+                            type="color"
+                            value={welcomeTitleColor}
+                            onchange={handleWelcomeTitleColorChange}
+                            class="color-swatch">
+                        <lightning-input
+                            type="text"
+                            value={welcomeTitleColor}
+                            onchange={handleWelcomeTitleColorChange}
+                            class="color-hex-input"
+                            variant="label-hidden">
+                        </lightning-input>
+                    </div>
+                </div>
+
+                <lightning-textarea
+                    label="Welcome Message"
+                    value={welcomeMessage}
+                    onchange={handleWelcomeMessageChange}
+                    placeholder="Ask questions, get personalized answers, and take action with Agentforce.">
+                </lightning-textarea>
+
+                <lightning-input
+                    type="checkbox"
+                    label="Customize Callout Word"
+                    checked={customizeCalloutWord}
+                    onchange={handleCustomizeCalloutWordToggle}
+                    field-level-help="Style a word in the welcome title differently">
+                </lightning-input>
+
+                <template lwc:if={showCalloutWordControls}>
+                    <div class="nested-controls">
+                        <lightning-input
+                            label="Callout Word"
+                            value={calloutWord}
+                            onchange={handleCalloutWordChange}
+                            placeholder="Word to highlight">
+                        </lightning-input>
+
+                        <div class="color-field">
+                            <label class="color-label">Callout Color</label>
+                            <div class="color-picker-row">
+                                <input
+                                    type="color"
+                                    value={calloutColor}
+                                    onchange={handleCalloutColorChange}
+                                    class="color-swatch">
+                                <lightning-input
+                                    type="text"
+                                    value={calloutColor}
+                                    onchange={handleCalloutColorChange}
+                                    class="color-hex-input"
+                                    variant="label-hidden">
+                                </lightning-input>
+                            </div>
+                        </div>
+
+                        <div class="style-buttons-container">
+                            <label class="style-buttons-label">Text Style</label>
+                            <div class="style-buttons">
+                                <lightning-button
+                                    variant={boldButtonVariant}
+                                    label="B"
+                                    title="Bold"
+                                    onclick={handleBoldToggle}
+                                    class={boldButtonClass}>
+                                </lightning-button>
+                                <lightning-button
+                                    variant={italicButtonVariant}
+                                    label="I"
+                                    title="Italic"
+                                    onclick={handleItalicToggle}
+                                    class={italicButtonClass}>
+                                </lightning-button>
+                            </div>
+                        </div>
+
+                        <template lwc:if={calloutBold}>
+                            <lightning-combobox
+                                label="Font Weight"
+                                value={calloutFontWeight}
+                                options={fontWeightOptions}
+                                onchange={handleCalloutFontWeightChange}>
+                            </lightning-combobox>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </template>
+    </div>
+
+    <!-- CONDITIONAL DISPLAY SECTION -->
+    <div class="slds-card slds-card_boundary">
+        <div class="section-header" onclick={toggleConditional}>
+            <lightning-icon icon-name={conditionalIconName} size="xx-small"></lightning-icon>
+            <span class="section-title">Conditional Display</span>
+        </div>
+        <template lwc:if={isConditionalExpanded}>
+            <div class="section-content">
+                <lightning-input
+                    type="checkbox"
+                    label="Enable URL-based Switching"
+                    checked={enableConditionalDisplay}
+                    onchange={handleConditionalToggle}
+                    field-level-help="Switch between inline and floating mode based on URL conditions">
+                </lightning-input>
+
+                <template lwc:if={enableConditionalDisplay}>
+                    <lightning-input
+                        label="Path Pattern"
+                        value={conditionalPathPattern}
+                        onchange={handlePathPatternChange}
+                        placeholder="global-search"
+                        field-level-help="Show inline when URL path contains this pattern (e.g., 'global-search')">
+                    </lightning-input>
+
+                    <lightning-input
+                        label="Query Parameter"
+                        value={conditionalQueryParam}
+                        onchange={handleQueryParamChange}
+                        placeholder="term"
+                        field-level-help="Show inline when this URL query parameter is present (e.g., '?term=search')">
+                    </lightning-input>
+
+                    <lightning-input
+                        type="checkbox"
+                        label="Invert Condition"
+                        checked={invertCondition}
+                        onchange={handleInvertConditionChange}
+                        field-level-help="Show inline when condition does NOT match (useful for showing inline everywhere except specific pages)">
+                    </lightning-input>
+                </template>
+            </div>
+        </template>
+    </div>
+
+    <!-- Footer Branding -->
+    <div class="cpe-footer">
+        <div class="footer-brand">
+            <span class="brand-ka">Kelley</span>
+            <span class="brand-ka-austin"><span class="brand-diamond"></span>Austin</span>
+            <span class="brand-separator"></span>
+            <span class="brand-nowpart">NOW PART OF</span>
+            <span class="brand-perficient"><span class="brand-p">P</span>ERFICIENT</span>
+        </div>
+        <div class="footer-version">Version: <span class="version-number">26.W</span></div>
+    </div>
+</template>
