@@ -751,8 +751,9 @@ export default class AgentforceChat extends LightningElement {
         // Inject CSS that positions the chat over the container
         this._injectProjectionStyles();
 
-        // Watch for minimize action to switch to FAB mode
-        this._watchForMinimize(embeddedMessaging);
+        // NOTE: Minimize-to-FAB switching disabled - was causing false triggers
+        // Users can navigate to a different page to get FAB behavior
+        // this._watchForMinimize(embeddedMessaging);
 
         // Update position immediately and on scroll/resize
         this._updateChatPosition();
@@ -934,8 +935,18 @@ export default class AgentforceChat extends LightningElement {
                 border: none !important;
             }
 
-            /* Hide FAB button but keep minimize visible in inline mode */
+            /* Hide FAB button in inline mode */
             #embedded-messaging.projected-inline > button {
+                display: none !important;
+            }
+
+            /* Hide minimize button in inline mode since it doesn't switch to FAB */
+            #embedded-messaging.projected-inline [class*="minimize"],
+            #embedded-messaging.projected-inline [class*="Minimize"],
+            #embedded-messaging.projected-inline [aria-label*="minimize"],
+            #embedded-messaging.projected-inline [aria-label*="Minimize"],
+            #embedded-messaging.projected-inline [title*="minimize"],
+            #embedded-messaging.projected-inline [title*="Minimize"] {
                 display: none !important;
             }
 
