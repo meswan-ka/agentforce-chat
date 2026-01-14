@@ -1505,12 +1505,14 @@ export default class AgentforceChat extends LightningElement {
 
         // Manual cleanup: Remove the iframe to force recreation
         const embeddedMessaging = document.getElementById('embedded-messaging');
+        let iframeRemoved = false;
         if (embeddedMessaging) {
             const iframe = embeddedMessaging.querySelector('iframe[name="embeddedMessagingFrame"]') ||
                           embeddedMessaging.querySelector('iframe');
             if (iframe) {
                 console.log('[AgentforceChat] Removing iframe to force fresh conversation');
                 iframe.remove();
+                iframeRemoved = true;
             }
         }
 
@@ -1531,6 +1533,22 @@ export default class AgentforceChat extends LightningElement {
             });
         } catch (error) {
             console.warn('[AgentforceChat] Error clearing storage:', error);
+        }
+
+        // CRITICAL: If we removed the iframe, we MUST reset _bootstrapInitialized
+        // and re-initialize so bootstrap.init() creates a new iframe.
+        // This handles SPA navigation where the component stays alive but needs fresh chat.
+        if (iframeRemoved) {
+            console.log('[AgentforceChat] Iframe removed, resetting bootstrap state for re-init');
+            this._bootstrapInitialized = false;
+            this._apiReady = false;
+
+            // Re-initialize after a brief delay to let DOM settle
+            // eslint-disable-next-line @lwc/lwc/no-async-operation
+            setTimeout(() => {
+                console.log('[AgentforceChat] Re-initializing chat after iframe removal');
+                this._initializeChat();
+            }, 100);
         }
     }
 
