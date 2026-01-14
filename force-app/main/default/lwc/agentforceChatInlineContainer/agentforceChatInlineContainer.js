@@ -83,10 +83,21 @@ export default class AgentforceChatInlineContainer extends LightningElement {
             hideWelcome: () => this._hideWelcome(),
             showWelcome: () => this._showWelcome(),
             reset: () => this._reset(),
-            getInputMessage: () => this._inputMessage
+            getInputMessage: () => this._inputMessage,
+            // Share search config so core component can auto-detect
+            searchConfig: {
+                autoDetectSearchQuery: this._config.autoDetectSearchQuery,
+                searchPagePath: this._config.searchPagePath,
+                searchQueryParam: this._config.searchQueryParam,
+                searchStartsNewChat: this._config.searchStartsNewChat
+            }
         };
 
         console.log('[AgentforceChatInlineContainer] Registered container:', this._containerId);
+
+        // Check if there's already an active conversation to display
+        // This handles navigation from FAB mode or other inline pages
+        this._checkForActiveConversation();
 
         // Check for search query if on search page
         this._detectSearchQuery();
@@ -136,6 +147,62 @@ export default class AgentforceChatInlineContainer extends LightningElement {
 
         this._config = config;
         this._configApplied = true;
+    }
+
+    // ==================== ACTIVE CONVERSATION DETECTION ====================
+
+    /**
+     * Check if there's already an active conversation that should be displayed
+     * This handles navigation from FAB mode or between inline pages
+     */
+    _checkForActiveConversation() {
+        // Short delay to let the page settle
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        setTimeout(() => {
+            this._detectAndProjectActiveConversation();
+        }, 300);
+    }
+
+    /**
+     * Detect if embedded-messaging has an active conversation and project it
+     */
+    _detectAndProjectActiveConversation() {
+        const embeddedMessaging = document.getElementById('embedded-messaging');
+        if (!embeddedMessaging) {
+            console.log('[AgentforceChatInlineContainer] No embedded-messaging element found');
+            return;
+        }
+
+        // Check if chat iframe exists and is maximized (active conversation)
+        const iframe = embeddedMessaging.querySelector('iframe[name="embeddedMessagingFrame"]');
+        const isMaximized = iframe?.classList.contains('isMaximized');
+
+        // Also check for any chat content as backup indicator
+        const hasContent = embeddedMessaging.querySelector('[class*="conversation"]') ||
+                          embeddedMessaging.querySelector('[class*="message"]') ||
+                          (iframe && iframe.offsetHeight > 0);
+
+        console.log('[AgentforceChatInlineContainer] Active conversation check:', {
+            hasEmbeddedMessaging: true,
+            hasIframe: !!iframe,
+            isMaximized,
+            hasContent
+        });
+
+        if (isMaximized || hasContent) {
+            console.log('[AgentforceChatInlineContainer] Active conversation detected, hiding welcome and projecting');
+
+            // Hide welcome screen
+            this._hideWelcome();
+
+            // Dispatch event to trigger projection from core component
+            // Use a custom event that the core component listens for
+            document.dispatchEvent(new CustomEvent('agentforceProjectChat', {
+                detail: { containerId: this._containerId },
+                bubbles: true,
+                composed: true
+            }));
+        }
     }
 
     // ==================== SEARCH DETECTION ====================
@@ -339,6 +406,7 @@ export default class AgentforceChatInlineContainer extends LightningElement {
     // ==================== INTERNAL METHODS ====================
 
     _hideWelcome() {
+        console.log('[AgentforceChatInlineContainer] _hideWelcome called, setting _isWelcomeVisible = false');
         this._isWelcomeVisible = false;
         this._inputMessage = '';
     }

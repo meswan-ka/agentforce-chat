@@ -71,11 +71,24 @@ export default class AgentforceChat extends LightningElement {
     _queuedChatStart = null;
     _minimizeObserver = null;
     _inFabModeOverride = false;
+    _greetingWatcherActive = false;
 
     // Activity tracking state
     _sessionId = null;
     _messageCount = 0;
     _embeddedEventHandlers = {};
+    // Track if conversation has ended - use getter/setter to persist in sessionStorage
+    // This survives SPA navigation where component reconnects
+    get _conversationEnded() {
+        return sessionStorage.getItem('agentforce_conversation_ended') === 'true';
+    }
+    set _conversationEnded(value) {
+        if (value) {
+            sessionStorage.setItem('agentforce_conversation_ended', 'true');
+        } else {
+            sessionStorage.removeItem('agentforce_conversation_ended');
+        }
+    }
 
     // ==================== COMPUTED PROPERTIES ====================
 
@@ -634,6 +647,16 @@ export default class AgentforceChat extends LightningElement {
                 deployment: this.deploymentDeveloperName
             });
 
+            // CRITICAL: If previous conversation ended, clear Embedded Service storage
+            // BEFORE calling bootstrap.init() so it starts fresh.
+            // This must happen BEFORE init(), not after, because once init() runs
+            // it loads the cached ended conversation state and we can't reset it.
+            if (this._conversationEnded) {
+                console.log('[AgentforceChat] Previous conversation ended - clearing storage BEFORE init');
+                this._clearEmbeddedServiceStoragePreInit();
+                this._conversationEnded = false; // Clear our flag too
+            }
+
             // If we have an inline container, hide the floating UI initially
             // It will be shown after projection completes
             if (hasContainer) {
@@ -738,9 +761,102 @@ export default class AgentforceChat extends LightningElement {
                 this._queuedChatStart = null;
                 this._handleChatStart(event);
             }
+
+            // Auto-detect search query and start conversation (core component handles this
+            // because inline container may re-render and lose its timeout)
+            this._checkAndAutoStartFromSearch();
         };
 
         window.addEventListener('onEmbeddedMessagingReady', this._messagingReadyHandler);
+    }
+
+    /**
+     * Check if on a search page and auto-start conversation with search query
+     * This is handled in the core component because inline container may re-render
+     * and lose its timeout before it fires
+     */
+    _checkAndAutoStartFromSearch() {
+        // Get search config from inline container (preferred) or design tokens (fallback)
+        const inlineContainer = window.__agentforceChatInlineContainer;
+        const searchConfig = inlineContainer?.searchConfig || {};
+        const tokens = window.__agentforceChatDesignTokens || {};
+
+        const autoDetectSearch = searchConfig.autoDetectSearchQuery === true || tokens.autoDetectSearchQuery === true;
+        const searchPagePath = searchConfig.searchPagePath || tokens.searchPagePath || '/global-search';
+        const searchQueryParam = searchConfig.searchQueryParam || tokens.searchQueryParam || 'term';
+
+        console.log('[AgentforceChat] Search config:', { autoDetectSearch, searchPagePath, searchQueryParam });
+
+        if (!autoDetectSearch) {
+            console.log('[AgentforceChat] Search auto-detect not enabled');
+            return;
+        }
+
+        const currentPath = window.location.pathname;
+        const isSearchPage = currentPath.includes(searchPagePath);
+
+        console.log('[AgentforceChat] Checking for search query:', {
+            autoDetectSearch,
+            searchPagePath,
+            currentPath,
+            isSearchPage
+        });
+
+        if (!isSearchPage) {
+            return;
+        }
+
+        // Extract search query from URL
+        let searchQuery = null;
+
+        // Try URL parameter first (e.g., ?term=query)
+        const urlParams = new URLSearchParams(window.location.search);
+        searchQuery = urlParams.get(searchQueryParam);
+
+        // Try path-based search (e.g., /global-search/my%20query)
+        if (!searchQuery && currentPath.includes(searchPagePath + '/')) {
+            const pathParts = currentPath.split(searchPagePath + '/');
+            if (pathParts.length > 1) {
+                searchQuery = decodeURIComponent(pathParts[1].split('/')[0]);
+            }
+        }
+
+        if (!searchQuery) {
+            console.log('[AgentforceChat] No search query found in URL');
+            return;
+        }
+
+        console.log('[AgentforceChat] Found search query:', searchQuery);
+
+        // Check if there's already an active/maximized conversation
+        const hasActiveChat = this._isConversationMaximized();
+
+        if (hasActiveChat) {
+            console.log('[AgentforceChat] Already have active conversation, not auto-starting');
+            return;
+        }
+
+        // Small delay to let the page settle, then start conversation
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        setTimeout(() => {
+            console.log('[AgentforceChat] Auto-starting conversation from search query:', searchQuery);
+
+            // Hide inline container welcome screen if present
+            if (inlineContainer?.hideWelcome) {
+                inlineContainer.hideWelcome();
+            }
+
+            // Create synthetic chatstart event
+            const syntheticEvent = {
+                detail: {
+                    message: searchQuery,
+                    isSearchQuery: true,
+                    searchStartsNewChat: true
+                }
+            };
+
+            this._handleChatStart(syntheticEvent);
+        }, 500);
     }
 
     /**
@@ -811,68 +927,96 @@ export default class AgentforceChat extends LightningElement {
     }
 
     /**
-     * Watch for agent's greeting message to appear before sending user's message
+     * Watch for agent's greeting message using Embedded Service events (Bug 1 fix)
+     * Uses onEmbeddedMessageSent event instead of unreliable DOM observation
+     * On timeout, retries launchChat() while keeping listener active to avoid race conditions
      */
-    _watchForAgentGreeting() {
+    _watchForAgentGreeting(retryCount = 0) {
+        const maxRetries = 6;
+        const timeoutMs = 4000;
+
         if (!this._pendingMessage || this._messageSent) {
             return;
         }
 
-        const embeddedMessaging = document.getElementById('embedded-messaging');
-        if (!embeddedMessaging) {
-            console.log('[AgentforceChat] embedded-messaging not found, retrying...');
-            // eslint-disable-next-line @lwc/lwc/no-async-operation
-            setTimeout(() => this._watchForAgentGreeting(), 500);
+        // Prevent duplicate watchers - if one is already active, skip
+        if (this._greetingWatcherActive) {
+            console.log('[AgentforceChat] Greeting watcher already active, skipping duplicate');
             return;
         }
 
-        let messageCount = 0;
+        this._greetingWatcherActive = true;
+        console.log('[AgentforceChat] Setting up agent greeting watcher (will retry up to', maxRetries, 'times)');
 
-        // Create observer to watch for any new content in the chat
-        const observer = new MutationObserver((mutations, obs) => {
-            for (const mutation of mutations) {
-                // Look for added nodes that might be messages
-                if (mutation.addedNodes.length > 0) {
-                    for (const node of mutation.addedNodes) {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            // Check if this looks like a message (has text content, is visible)
-                            const text = node.textContent?.trim();
-                            if (text && text.length > 5) {
-                                messageCount++;
-                                console.log('[AgentforceChat] Detected content:', text.substring(0, 50));
+        // Track state
+        let greetingDetected = false;
+        let currentRetry = 0;
 
-                                // Wait for at least one message-like element
-                                if (messageCount >= 1) {
-                                    console.log('[AgentforceChat] Agent greeting likely detected, sending user message');
-                                    obs.disconnect();
-                                    // Delay to ensure greeting is fully rendered
-                                    // eslint-disable-next-line @lwc/lwc/no-async-operation
-                                    setTimeout(() => this._sendPendingMessage(), 500);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                }
+        // Handler for incoming messages - wait for non-user message (agent/bot greeting)
+        const messageHandler = (event) => {
+            if (greetingDetected || this._messageSent) {
+                return;
             }
-        });
 
-        // Start observing
-        observer.observe(embeddedMessaging, {
-            childList: true,
-            subtree: true,
-            characterData: true
-        });
+            const detail = event?.detail || {};
+            const sender = detail.sender || 'unknown';
 
-        // Fallback: disconnect after 8 seconds and send anyway
-        // eslint-disable-next-line @lwc/lwc/no-async-operation
-        setTimeout(() => {
-            observer.disconnect();
-            console.log('[AgentforceChat] Greeting watch timeout, sending message anyway');
-            this._sendPendingMessage();
-        }, 8000);
+            console.log('[AgentforceChat] Message event received, sender:', sender);
 
-        console.log('[AgentforceChat] Started watching for agent greeting');
+            // Only trigger on non-user messages (agent, bot, or system greeting)
+            if (sender !== 'EndUser') {
+                console.log('[AgentforceChat] Agent/bot message detected, sending pending message');
+                greetingDetected = true;
+                this._greetingWatcherActive = false;
+
+                // Remove the handler
+                window.removeEventListener('onEmbeddedMessageSent', messageHandler);
+
+                // Small delay to ensure greeting is rendered before user's message
+                // eslint-disable-next-line @lwc/lwc/no-async-operation
+                setTimeout(() => this._sendPendingMessage(), 300);
+            }
+        };
+
+        // Register the handler ONCE - it stays active through all retries
+        window.addEventListener('onEmbeddedMessageSent', messageHandler);
+
+        // Retry function that keeps the same listener active
+        const scheduleRetry = () => {
+            // eslint-disable-next-line @lwc/lwc/no-async-operation
+            setTimeout(() => {
+                // Check if greeting was detected while we were waiting
+                if (greetingDetected || this._messageSent) {
+                    return; // Success! Handler already cleaned up
+                }
+
+                if (currentRetry < maxRetries) {
+                    currentRetry++;
+                    console.log('[AgentforceChat] No agent message after', timeoutMs / 1000, 's, retrying launchChat() (retry', currentRetry, 'of', maxRetries, ')');
+
+                    // Retry launchChat - listener stays active
+                    const utilAPI = window.embeddedservice_bootstrap?.utilAPI;
+                    if (utilAPI?.launchChat) {
+                        utilAPI.launchChat()
+                            .then(() => console.log('[AgentforceChat] Retry launchChat() succeeded'))
+                            .catch((error) => console.warn('[AgentforceChat] Retry launchChat() failed:', error));
+                    }
+
+                    // Schedule next check
+                    scheduleRetry();
+                } else {
+                    // Max retries reached - clean up
+                    window.removeEventListener('onEmbeddedMessageSent', messageHandler);
+                    this._greetingWatcherActive = false;
+                    console.error('[AgentforceChat] Max retries reached (', maxRetries, '). Agent greeting not detected. Message NOT sent.');
+                }
+            }, timeoutMs);
+        };
+
+        // Start the retry loop
+        scheduleRetry();
+
+        console.log('[AgentforceChat] Started watching for agent greeting via events');
     }
 
     /**
@@ -1210,8 +1354,9 @@ export default class AgentforceChat extends LightningElement {
      * Handle chatstart event from inline container
      */
     _handleChatStart(event) {
-        const { message, isSearchQuery } = event.detail || {};
+        const { message, isSearchQuery, searchStartsNewChat: eventSearchStartsNewChat } = event.detail || {};
         console.log('[AgentforceChat] Chat start requested:', message, 'isSearchQuery:', isSearchQuery);
+        console.log('[AgentforceChat] Current state - conversationEnded:', this._conversationEnded, 'apiReady:', this._apiReady);
 
         // If API not ready yet, queue this request
         if (!this._apiReady) {
@@ -1220,12 +1365,24 @@ export default class AgentforceChat extends LightningElement {
             return;
         }
 
-        // Check if we should start a new chat or resume existing
-        const searchStartsNewChat = window.__agentforceChatDesignTokens?.searchStartsNewChat !== false;
+        // Use event detail as source of truth for searchStartsNewChat, fallback to design tokens
+        const searchStartsNewChat = eventSearchStartsNewChat !== undefined
+            ? eventSearchStartsNewChat
+            : (window.__agentforceChatDesignTokens?.searchStartsNewChat !== false);
 
-        // If this is a search query and searchStartsNewChat is false, just send the message
-        // without launching a new chat session
-        if (isSearchQuery && !searchStartsNewChat && this._bootstrapInitialized) {
+        // Check if there's an active maximized conversation (reliable indicator vs _sessionId)
+        const hasMaximizedChat = this._isConversationMaximized();
+        console.log('[AgentforceChat] hasMaximizedChat:', hasMaximizedChat, 'searchStartsNewChat:', searchStartsNewChat);
+
+        // Bug 2 fix: If previous conversation ended, reset state before starting new chat
+        if (this._conversationEnded) {
+            console.log('[AgentforceChat] Previous conversation ended, resetting for fresh start');
+            this._resetForNewConversation();
+        }
+
+        // If this is a search query and searchStartsNewChat is false, AND there's an active chat,
+        // just send the message to existing conversation
+        if (isSearchQuery && !searchStartsNewChat && hasMaximizedChat) {
             console.log('[AgentforceChat] Resuming existing chat with search query');
 
             // Hide the welcome screen
@@ -1265,10 +1422,10 @@ export default class AgentforceChat extends LightningElement {
         // NOW position the chat over the container
         this._projectChatToContainer();
 
-        // Launch the chat
+        // Launch the chat - this will start a new conversation if none exists
         const utilAPI = window.embeddedservice_bootstrap?.utilAPI;
         if (utilAPI?.launchChat) {
-            console.log('[AgentforceChat] Launching chat');
+            console.log('[AgentforceChat] Launching chat (will start new conversation if needed)');
             utilAPI.launchChat();
 
             // Start watching for agent greeting immediately
@@ -1279,6 +1436,155 @@ export default class AgentforceChat extends LightningElement {
                 this._watchForAgentGreeting();
             }, 500);
         }
+    }
+
+    /**
+     * Check if there's a maximized (active) conversation
+     * More reliable than _sessionId which is generated on API ready
+     */
+    _isConversationMaximized() {
+        const embeddedMessaging = document.getElementById('embedded-messaging');
+        if (!embeddedMessaging) {
+            return false;
+        }
+
+        let iframe = embeddedMessaging.querySelector('iframe[name="embeddedMessagingFrame"]');
+        if (!iframe) {
+            iframe = embeddedMessaging.querySelector('iframe');
+        }
+
+        return iframe?.classList.contains('isMaximized') || false;
+    }
+
+    /**
+     * Reset component state for a new conversation (Bug 2 fix)
+     * Called when starting a chat after previous conversation ended
+     * Uses clearSession() to properly reset Embedded Service state so launchChat()
+     * starts a fresh conversation instead of showing the ended one.
+     */
+    _resetForNewConversation() {
+        console.log('[AgentforceChat] Resetting state for new conversation');
+
+        // Reset internal state
+        this._conversationEnded = false;
+        this._pendingMessage = null;
+        this._messageSent = false;
+        this._sessionId = null;
+        this._messageCount = 0;
+        this._greetingWatcherActive = false;
+
+        // Reset projection state to allow fresh projection
+        this._projectionComplete = false;
+        this._projectionAttempts = 0;
+        this._containerElement = null;
+
+        // Remove inline projection styles so chat can be re-projected
+        const embeddedMessaging = document.getElementById('embedded-messaging');
+        if (embeddedMessaging) {
+            embeddedMessaging.classList.remove('projected-inline', 'show-chat');
+        }
+
+        // Clear the Embedded Service session/UI to allow fresh start
+        // This is necessary because launchChat() alone won't start a new conversation
+        // when the previous one has ended - it just shows the ended UI
+        this._clearEmbeddedServiceForNewConversation();
+
+        console.log('[AgentforceChat] State reset complete, ready for new conversation');
+    }
+
+    /**
+     * Clear Embedded Service state to allow a fresh conversation
+     * Tries multiple approaches since different API versions have different methods
+     */
+    _clearEmbeddedServiceForNewConversation() {
+        console.log('[AgentforceChat] Attempting to clear Embedded Service for new conversation');
+
+        // NOTE: On Agentforce, utilAPI.clearSession and utilAPI.clearComponent are NOT implemented
+        // and even accessing these properties throws an error. We skip directly to manual cleanup.
+        // This is different from standard Enhanced Web Chat which has these methods available.
+
+        // Manual cleanup: Remove the iframe to force recreation
+        const embeddedMessaging = document.getElementById('embedded-messaging');
+        if (embeddedMessaging) {
+            const iframe = embeddedMessaging.querySelector('iframe[name="embeddedMessagingFrame"]') ||
+                          embeddedMessaging.querySelector('iframe');
+            if (iframe) {
+                console.log('[AgentforceChat] Removing iframe to force fresh conversation');
+                iframe.remove();
+            }
+        }
+
+        // Also clear any localStorage/sessionStorage keys that might hold conversation state
+        try {
+            const keysToRemove = [];
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                if (key && (key.includes('embedded') || key.includes('messaging') || key.includes('conversation'))) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach(key => {
+                if (!key.includes('agentforce_')) { // Don't remove our own keys
+                    console.log('[AgentforceChat] Removing sessionStorage key:', key);
+                    sessionStorage.removeItem(key);
+                }
+            });
+        } catch (error) {
+            console.warn('[AgentforceChat] Error clearing storage:', error);
+        }
+    }
+
+    /**
+     * Clear Embedded Service storage BEFORE bootstrap.init() runs
+     * This is called on page load when we detect a previous conversation ended.
+     * Unlike _clearEmbeddedServiceForNewConversation(), this does NOT remove the iframe
+     * because the iframe doesn't exist yet (we're clearing BEFORE init creates it).
+     *
+     * This ensures bootstrap.init() starts with a clean slate and doesn't
+     * restore the ended conversation state from cache.
+     */
+    _clearEmbeddedServiceStoragePreInit() {
+        console.log('[AgentforceChat] Clearing Embedded Service storage before init');
+
+        // Clear sessionStorage keys used by Embedded Service
+        try {
+            const keysToRemove = [];
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                if (key && (key.includes('embedded') || key.includes('messaging') || key.includes('conversation') || key.includes('MIAW'))) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach(key => {
+                if (!key.includes('agentforce_')) { // Don't remove our own keys
+                    console.log('[AgentforceChat] Pre-init: Removing sessionStorage key:', key);
+                    sessionStorage.removeItem(key);
+                }
+            });
+        } catch (error) {
+            console.warn('[AgentforceChat] Error clearing sessionStorage:', error);
+        }
+
+        // Clear localStorage keys used by Embedded Service
+        try {
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && (key.includes('embedded') || key.includes('messaging') || key.includes('conversation') || key.includes('MIAW'))) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach(key => {
+                if (!key.includes('agentforce_')) {
+                    console.log('[AgentforceChat] Pre-init: Removing localStorage key:', key);
+                    localStorage.removeItem(key);
+                }
+            });
+        } catch (error) {
+            console.warn('[AgentforceChat] Error clearing localStorage:', error);
+        }
+
+        console.log('[AgentforceChat] Storage cleared, ready for fresh init');
     }
 
     /**
@@ -1326,19 +1632,25 @@ export default class AgentforceChat extends LightningElement {
 
         // Conversation events
         this._registerEmbeddedEvent('onEmbeddedMessagingConversationStarted', () => {
+            console.log('[AgentforceChat] Conversation started event received');
+            // Reset the ended flag since we have a new active conversation
+            this._conversationEnded = false;
             this._publishActivityEvent('SESSION_STARTED', {
                 source: 'embedded_service'
             });
         });
 
         this._registerEmbeddedEvent('onEmbeddedMessagingConversationClosed', () => {
+            console.log('[AgentforceChat] Conversation closed event received');
             this._publishActivityEvent('SESSION_ENDED', {
                 source: 'embedded_service',
                 messageCount: this._messageCount
             });
-            // Reset for next session
+            // Reset for next session and mark conversation as ended (Bug 2 fix)
             this._sessionId = null;
             this._messageCount = 0;
+            this._conversationEnded = true;
+            console.log('[AgentforceChat] Marked conversation as ended, will reset on next chat start');
         });
 
         // Message events - onEmbeddedMessageSent fires for all messages (user, bot, rep)
