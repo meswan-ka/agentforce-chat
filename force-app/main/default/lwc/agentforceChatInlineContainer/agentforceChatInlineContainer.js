@@ -66,6 +66,12 @@ export default class AgentforceChatInlineContainer extends LightningElement {
     _isWelcomeVisible = true;
     _inputMessage = '';
 
+    // Loading state
+    _isLoadingVisible = false;
+    _loadingProgress = 0; // 0-100
+    _isCompleting = false;
+    _loadingMessage = 'Connecting you to our AI Agent! We\'ll be right with you.';
+
     // ==================== LIFECYCLE ====================
 
     connectedCallback() {
@@ -84,6 +90,11 @@ export default class AgentforceChatInlineContainer extends LightningElement {
             showWelcome: () => this._showWelcome(),
             reset: () => this._reset(),
             getInputMessage: () => this._inputMessage,
+            // Loading screen methods
+            showLoading: () => this._showLoading(),
+            updateLoadingProgress: (percent, message) => this._updateLoadingProgress(percent, message),
+            completeLoading: (callback) => this._completeLoading(callback),
+            hideLoading: () => this._hideLoading(),
             // Share search config so core component can auto-detect
             searchConfig: {
                 autoDetectSearchQuery: this._config.autoDetectSearchQuery,
@@ -294,7 +305,27 @@ export default class AgentforceChatInlineContainer extends LightningElement {
     }
 
     get isWelcomeVisible() {
-        return this._isWelcomeVisible && this._config.showWelcomeScreen !== false;
+        return this._isWelcomeVisible && this._config.showWelcomeScreen !== false && !this._isLoadingVisible;
+    }
+
+    get isLoadingVisible() {
+        return this._isLoadingVisible;
+    }
+
+    get loadingAvatarStyle() {
+        const color = this._config.agentPrimaryColor;
+        // Create a semi-transparent version of the primary color for the background
+        const rgb = this._hexToRgb(color);
+        const bgColor = rgb ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)` : 'rgba(1, 118, 211, 0.15)';
+        return `--loading-avatar-bg: ${bgColor}; --fill-gradient: linear-gradient(135deg, ${color} 0%, ${this._darkenColor(color, 40)} 100%);`;
+    }
+
+    get avatarFillStyle() {
+        return `--fill-percent: ${this._loadingProgress}%;`;
+    }
+
+    get loadingMessage() {
+        return this._loadingMessage;
     }
 
     get isSendDisabled() {
@@ -439,5 +470,74 @@ export default class AgentforceChatInlineContainer extends LightningElement {
         g = Math.max(0, Math.floor(g * (1 - percent / 100)));
         b = Math.max(0, Math.floor(b * (1 - percent / 100)));
         return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+    }
+
+    _hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        if (hex.length === 3) {
+            hex = hex.split('').map(c => c + c).join('');
+        }
+        const result = /^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
+
+    // ==================== LOADING SCREEN METHODS ====================
+
+    /**
+     * Show the loading screen (replaces welcome screen)
+     */
+    _showLoading() {
+        console.log('[AgentforceChatInlineContainer] Showing loading screen');
+        this._isWelcomeVisible = false;
+        this._isLoadingVisible = true;
+        this._loadingProgress = 0;
+        this._isCompleting = false;
+        this._loadingMessage = 'Connecting you to our AI Agent! We\'ll be right with you.';
+    }
+
+    /**
+     * Update the loading progress (0-100)
+     * @param {number} percent - Progress percentage (0-100)
+     * @param {string} message - Optional message to display
+     */
+    _updateLoadingProgress(percent, message) {
+        console.log('[AgentforceChatInlineContainer] Loading progress:', percent + '%');
+        this._loadingProgress = Math.min(100, Math.max(0, percent));
+        if (message) {
+            this._loadingMessage = message;
+        }
+    }
+
+    /**
+     * Complete the loading animation quickly and invoke callback when done
+     * @param {function} callback - Function to invoke when animation completes
+     */
+    _completeLoading(callback) {
+        console.log('[AgentforceChatInlineContainer] Completing loading animation');
+        this._isCompleting = true;
+        this._loadingProgress = 100;
+
+        // Wait for the fill animation to complete, then hide and invoke callback
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        setTimeout(() => {
+            this._hideLoading();
+            if (callback && typeof callback === 'function') {
+                callback();
+            }
+        }, 600); // Match the CSS transition duration
+    }
+
+    /**
+     * Hide the loading screen
+     */
+    _hideLoading() {
+        console.log('[AgentforceChatInlineContainer] Hiding loading screen');
+        this._isLoadingVisible = false;
+        this._loadingProgress = 0;
+        this._isCompleting = false;
     }
 }

@@ -157,3 +157,106 @@
 .send-button:disabled .send-icon {
     fill: #706e6b;
 }
+
+/* ==================== LOADING SCREEN ==================== */
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(
+        180deg,
+        var(--gradient-start, #e8f4fd) 0%,
+        var(--gradient-mid, #f5f9fc) 50%,
+        var(--gradient-end, #ffffff) 100%
+    );
+    border-radius: 12px;
+    overflow: hidden;
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+}
+
+.loading-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 2rem;
+    text-align: center;
+}
+
+.loading-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Loading avatar with fill animation */
+.agent-avatar-loading {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 4px 16px rgba(1, 118, 211, 0.3);
+    /* Base background is semi-transparent version of primary color */
+    background: var(--loading-avatar-bg, rgba(1, 118, 211, 0.15));
+}
+
+/* The fill element that animates from bottom to top */
+.avatar-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: var(--fill-percent, 0%);
+    background: var(--fill-gradient, linear-gradient(135deg, #0176d3 0%, #032d60 100%));
+    transition: height 0.3s ease-out;
+    border-radius: 0 0 50% 50%;
+}
+
+/* When fill is completing quickly (agent responded early), use faster transition */
+.avatar-fill.completing {
+    transition: height 0.5s ease-in-out;
+}
+
+/* The icon sits on top of the fill */
+.avatar-icon {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+}
+
+.avatar-icon lightning-icon {
+    --sds-c-icon-color-foreground-default: #fff;
+    background: transparent;
+}
+
+.loading-message {
+    font-size: 1.1rem;
+    color: #444;
+    margin: 0;
+    max-width: 300px;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
+    }
+}

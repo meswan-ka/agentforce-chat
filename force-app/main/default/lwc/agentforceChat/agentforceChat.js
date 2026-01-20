@@ -930,10 +930,12 @@ export default class AgentforceChat extends LightningElement {
      * Watch for agent's greeting message using Embedded Service events (Bug 1 fix)
      * Uses onEmbeddedMessageSent event instead of unreliable DOM observation
      * On timeout, retries launchChat() while keeping listener active to avoid race conditions
+     * Updates loading animation progress as retries happen
      */
     _watchForAgentGreeting(retryCount = 0) {
-        const maxRetries = 6;
+        const maxRetries = 15;
         const timeoutMs = 4000;
+        const totalTimeMs = maxRetries * timeoutMs; // 60 seconds total
 
         if (!this._pendingMessage || this._messageSent) {
             return;
@@ -951,6 +953,24 @@ export default class AgentforceChat extends LightningElement {
         // Track state
         let greetingDetected = false;
         let currentRetry = 0;
+        const startTime = Date.now();
+
+        // Get container reference for loading updates
+        const container = window.__agentforceChatInlineContainer;
+
+        // Start progress animation - update every 500ms for smooth fill
+        let progressInterval = null;
+        if (container?.updateLoadingProgress) {
+            progressInterval = setInterval(() => {
+                if (greetingDetected || this._messageSent) {
+                    clearInterval(progressInterval);
+                    return;
+                }
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(95, (elapsed / totalTimeMs) * 100); // Cap at 95% until complete
+                container.updateLoadingProgress(progress);
+            }, 500);
+        }
 
         // Handler for incoming messages - wait for non-user message (agent/bot greeting)
         const messageHandler = (event) => {
@@ -965,16 +985,33 @@ export default class AgentforceChat extends LightningElement {
 
             // Only trigger on non-user messages (agent, bot, or system greeting)
             if (sender !== 'EndUser') {
-                console.log('[AgentforceChat] Agent/bot message detected, sending pending message');
+                console.log('[AgentforceChat] Agent/bot message detected, completing loading and sending message');
                 greetingDetected = true;
                 this._greetingWatcherActive = false;
+
+                // Stop progress animation
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                }
 
                 // Remove the handler
                 window.removeEventListener('onEmbeddedMessageSent', messageHandler);
 
-                // Small delay to ensure greeting is rendered before user's message
-                // eslint-disable-next-line @lwc/lwc/no-async-operation
-                setTimeout(() => this._sendPendingMessage(), 300);
+                // Complete the loading animation, then project chat and send message
+                if (container?.completeLoading) {
+                    container.completeLoading(() => {
+                        // Project the chat into the container
+                        this._projectChatToContainer();
+                        // Send the pending message after a brief delay
+                        // eslint-disable-next-line @lwc/lwc/no-async-operation
+                        setTimeout(() => this._sendPendingMessage(), 300);
+                    });
+                } else {
+                    // Fallback if completeLoading not available
+                    this._projectChatToContainer();
+                    // eslint-disable-next-line @lwc/lwc/no-async-operation
+                    setTimeout(() => this._sendPendingMessage(), 300);
+                }
             }
         };
 
@@ -1007,8 +1044,14 @@ export default class AgentforceChat extends LightningElement {
                 } else {
                     // Max retries reached - clean up
                     window.removeEventListener('onEmbeddedMessageSent', messageHandler);
+                    if (progressInterval) {
+                        clearInterval(progressInterval);
+                    }
                     this._greetingWatcherActive = false;
-                    console.error('[AgentforceChat] Max retries reached (', maxRetries, '). Agent greeting not detected. Message NOT sent.');
+                    console.error('[AgentforceChat] Max retries reached (', maxRetries, '). Agent greeting not detected.');
+
+                    // Handle timeout - show toast and attempt re-init
+                    this._handleAgentGreetingTimeout();
                 }
             }, timeoutMs);
         };
@@ -1017,6 +1060,173 @@ export default class AgentforceChat extends LightningElement {
         scheduleRetry();
 
         console.log('[AgentforceChat] Started watching for agent greeting via events');
+    }
+
+    /**
+     * Handle timeout when agent greeting is not received after max retries
+     * Shows a warning toast and attempts to re-initialize the chat
+     */
+    _handleAgentGreetingTimeout() {
+        console.log('[AgentforceChat] Handling agent greeting timeout');
+
+        const container = window.__agentforceChatInlineContainer;
+
+        // Hide the loading screen
+        if (container?.hideLoading) {
+            container.hideLoading();
+        }
+
+        // Show warning toast using platform events or custom event
+        this._showWarningToast('Connection timeout', 'Unable to connect to the AI agent. Please try again.');
+
+        // Reset state for retry
+        this._pendingMessage = null;
+        this._messageSent = false;
+        this._greetingWatcherActive = false;
+
+        // Reset projection state
+        this._projectionComplete = false;
+        this._projectionAttempts = 0;
+        this._containerElement = null;
+
+        // Show welcome screen again so user can retry
+        if (container?.reset) {
+            container.reset();
+        }
+
+        // Attempt to re-initialize the embedded service
+        this._attemptReInit();
+    }
+
+    /**
+     * Show a warning toast notification
+     */
+    _showWarningToast(title, message) {
+        // Dispatch a custom event that can be caught by a toast handler
+        // In Experience Cloud, we use a custom event since ShowToastEvent isn't available
+        const toastEvent = new CustomEvent('agentforcetoast', {
+            detail: {
+                title: title,
+                message: message,
+                variant: 'warning'
+            },
+            bubbles: true,
+            composed: true
+        });
+        document.dispatchEvent(toastEvent);
+
+        // Also log to console
+        console.warn(`[AgentforceChat] Toast: ${title} - ${message}`);
+
+        // Create a simple DOM-based toast as fallback
+        this._createFallbackToast(title, message);
+    }
+
+    /**
+     * Create a simple DOM-based toast notification as fallback
+     * Uses safe DOM methods instead of innerHTML to prevent XSS
+     */
+    _createFallbackToast(title, message) {
+        const toast = document.createElement('div');
+        toast.className = 'agentforce-toast agentforce-toast-warning';
+
+        const content = document.createElement('div');
+        content.className = 'agentforce-toast-content';
+
+        const titleEl = document.createElement('strong');
+        titleEl.textContent = title;
+
+        const messageEl = document.createElement('p');
+        messageEl.textContent = message;
+
+        content.appendChild(titleEl);
+        content.appendChild(messageEl);
+        toast.appendChild(content);
+
+        // Inject toast styles if not already present
+        if (!document.getElementById('agentforce-toast-styles')) {
+            const styles = document.createElement('style');
+            styles.id = 'agentforce-toast-styles';
+            styles.textContent = `
+                .agentforce-toast {
+                    position: fixed;
+                    top: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    z-index: 10000;
+                    padding: 16px 24px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    animation: agentforce-toast-in 0.3s ease-out;
+                    font-family: 'Salesforce Sans', Arial, sans-serif;
+                }
+                .agentforce-toast-warning {
+                    background: #fef3cd;
+                    border: 1px solid #ffc107;
+                    color: #856404;
+                }
+                .agentforce-toast-content strong {
+                    display: block;
+                    margin-bottom: 4px;
+                }
+                .agentforce-toast-content p {
+                    margin: 0;
+                    font-size: 14px;
+                }
+                @keyframes agentforce-toast-in {
+                    from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+                    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+                }
+                @keyframes agentforce-toast-out {
+                    from { opacity: 1; transform: translateX(-50%) translateY(0); }
+                    to { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+                }
+            `;
+            document.head.appendChild(styles);
+        }
+
+        document.body.appendChild(toast);
+
+        // Auto-remove after 5 seconds
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        setTimeout(() => {
+            toast.style.animation = 'agentforce-toast-out 0.3s ease-out forwards';
+            // eslint-disable-next-line @lwc/lwc/no-async-operation
+            setTimeout(() => toast.remove(), 300);
+        }, 5000);
+    }
+
+    /**
+     * Attempt to re-initialize the embedded service after a failure
+     */
+    _attemptReInit() {
+        console.log('[AgentforceChat] Attempting to re-initialize chat');
+
+        // Clear any existing conversation state
+        this._conversationEnded = true;
+
+        // Reset bootstrap state
+        this._bootstrapInitialized = false;
+        this._apiReady = false;
+
+        // Remove existing iframe if present
+        const embeddedMessaging = document.getElementById('embedded-messaging');
+        if (embeddedMessaging) {
+            const iframe = embeddedMessaging.querySelector('iframe');
+            if (iframe) {
+                iframe.remove();
+            }
+        }
+
+        // Clear embedded service storage
+        this._clearEmbeddedServiceStoragePreInit();
+
+        // Re-initialize after a brief delay
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        setTimeout(() => {
+            this._conversationEnded = false;
+            this._initializeChat();
+        }, 500);
     }
 
     /**
@@ -1413,14 +1623,17 @@ export default class AgentforceChat extends LightningElement {
             this._messageSent = false; // Reset flag for new message
         }
 
-        // Hide the welcome screen in the container
+        // Show the loading screen in the container (replaces welcome screen)
         const container = window.__agentforceChatInlineContainer;
-        if (container?.hideWelcome) {
+        if (container?.showLoading) {
+            container.showLoading();
+        } else if (container?.hideWelcome) {
+            // Fallback if showLoading not available
             container.hideWelcome();
         }
 
-        // NOW position the chat over the container
-        this._projectChatToContainer();
+        // DON'T position chat yet - wait until loading completes
+        // this._projectChatToContainer();
 
         // Launch the chat - this will start a new conversation if none exists
         const utilAPI = window.embeddedservice_bootstrap?.utilAPI;

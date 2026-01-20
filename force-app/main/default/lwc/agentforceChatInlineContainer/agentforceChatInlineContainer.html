@@ -39,6 +39,23 @@
             </div>
         </template>
 
+        <!-- Loading Screen Overlay -->
+        <template lwc:if={isLoadingVisible}>
+            <div class="loading-overlay" style={containerStyle}>
+                <div class="loading-screen">
+                    <div class="loading-content">
+                        <div class="agent-avatar-loading" style={loadingAvatarStyle}>
+                            <div class="avatar-fill" style={avatarFillStyle}></div>
+                            <div class="avatar-icon">
+                                <lightning-icon icon-name="standard:bot" size="large"></lightning-icon>
+                            </div>
+                        </div>
+                        <p class="loading-message">{loadingMessage}</p>
+                    </div>
+                </div>
+            </div>
+        </template>
+
         <!-- Chat Container - chat UI will be projected here -->
         <div id={containerId} class="chat-projection-target"></div>
     </div>
